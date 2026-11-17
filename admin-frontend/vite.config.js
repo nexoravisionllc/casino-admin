@@ -11,6 +11,12 @@ export default defineConfig({
         target: 'http://localhost:5100',
         changeOrigin: true,
       },
+      // Live updates: the SignalR wallet hub (WebSockets) on the admin backend.
+      '/hubs': {
+        target: 'http://localhost:5100',
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
 });

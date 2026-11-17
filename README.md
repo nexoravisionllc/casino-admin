@@ -2,6 +2,11 @@
 
 Admin & agent panel for the casino platform. Login and dashboard are implemented.
 
+## Documentation
+
+- [HOW-TO-USE.md](HOW-TO-USE.md): admin and agent guide.
+- Server install guide: `Setup.md` in the `casino-user` repo.
+
 ## Stack
 
 | Part     | Technology                                             |
