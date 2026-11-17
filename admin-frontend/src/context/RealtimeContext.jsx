@@ -4,7 +4,7 @@ import * as signalR from '@microsoft/signalr';
 // Same-origin hub (the admin app is served by the admin backend during dev via
 // the Vite proxy; the hub itself lives on :5100).
 //const HUB_URL = 'https://adminbackend.fufvkgylntiyepgk.net/hubs/wallet';
-const HUB_URL = 'http://localhost:5100/hubs/wallet';
+const HUB_URL = '/hubs/wallet';
 
 const RealtimeContext = createContext({ tick: 0 });
 

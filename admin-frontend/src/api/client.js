@@ -2,7 +2,7 @@
 // Exported so non-JSON calls (e.g. multipart file uploads) can target the same
 // backend base instead of a relative /api URL (which would hit the frontend host).
 //export const BASE = 'https://adminbackend.fufvkgylntiyepgk.net/api';
-export const BASE = 'http://localhost:5100/api';
+export const BASE = '/api';
 
 export async function apiRequest(path, { method = 'GET', body, token } = {}) {
   const headers = {};
