@@ -1,4 +1,4 @@
-# BC-Solution Admin
+# Nexora Vision Play Admin
 
 Admin & agent panel for the casino platform. Login and dashboard are implemented.
 

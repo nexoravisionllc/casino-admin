@@ -46,7 +46,7 @@ export default function Sidebar({ rail, onNavigate }) {
             <SunIcon width={15} height={15} /> <span className="theme-switch__label">Light</span>
           </button>
         </div>
-        <p className="sidebar__ver">BC Solution Admin</p>
+        <p className="sidebar__ver">Nexora Vision Play Admin</p>
       </div>
     </aside>
   );

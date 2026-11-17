@@ -48,7 +48,7 @@ export default function Login() {
             <li><span><WalletIcon width={16} height={16} /></span>Deposits, withdrawals and balance control</li>
             <li><span><BoltIcon width={16} height={16} /></span>Real-time updates across every page</li>
           </ul>
-          <span className="login__copy">© {new Date().getFullYear()} BC-SOLUTION. All rights reserved.</span>
+          <span className="login__copy">© {new Date().getFullYear()} Nexora Vision Play. All rights reserved.</span>
         </div>
 
         <div className="login__body">

@@ -1,5 +1,5 @@
 /* =========================================================================
-   BC-Solution Admin — design system (shared look with the user portal)
+   Nexora Vision Play Admin — design system (shared look with the user portal)
    ========================================================================= */
 
 /* ---------- Theme tokens ---------- */
@@ -263,8 +263,11 @@ p { margin: 0; }
   display: inline-grid; place-items: center; flex: none;
   width: 26px; height: 26px; border-radius: 8px;
   color: #fff; font-size: 12px; font-weight: 700;
+  line-height: 1; text-align: center; font-variant-numeric: tabular-nums;
 }
 .lvl--sm { width: 20px; height: 20px; border-radius: 6px; font-size: 10px; }
+.lvl--tree { width: 24px; height: 24px; border-radius: 7px; font-size: 11px; }
+.lvl--xs { width: 16px; height: 16px; border-radius: 5px; font-size: 9px; }
 .lvl--lg { width: 52px; height: 52px; border-radius: 14px; font-size: 22px; }
 .lvl--user { background: linear-gradient(135deg, #3b4350, #2a3039); color: #cfd5de; }
 :root[data-theme='light'] .lvl--user { background: linear-gradient(135deg, #dfe3ea, #cfd5de); color: #4b5563; }
@@ -293,14 +296,14 @@ p { margin: 0; }
 .header__counters { display: flex; gap: 8px; }
 
 .logo { display: inline-flex; align-items: center; gap: 10px; color: var(--text); }
-.logo__mark { width: 32px; height: 32px; object-fit: contain; }
-.logo__text { font-weight: 800; font-size: 16px; letter-spacing: -.01em; white-space: nowrap; }
+.logo__mark { width: 32px; height: 32px; object-fit: contain; border-radius: 8px; }
+.logo__text { font-weight: 700; font-size: 16px; letter-spacing: -.01em; white-space: nowrap; }
 .logo__tag {
   padding: 2px 7px; border-radius: 6px;
   background: var(--brand-soft); color: var(--brand);
   font-size: 10px; font-weight: 800; letter-spacing: .08em;
 }
-.logo--lg .logo__mark { width: 44px; height: 44px; }
+.logo--lg .logo__mark { width: 48px; height: 48px; border-radius: 12px; }
 .logo--lg .logo__text { font-size: 22px; }
 
 /* Fortune Gate pill (balance + RTP). */
@@ -604,34 +607,69 @@ p { margin: 0; }
 .split__aside { position: sticky; top: calc(var(--header-h) + 20px); }
 
 /* ---------- Tree view ---------- */
-.tree-card { display: flex; flex-direction: column; max-height: calc(100vh - var(--header-h) - 44px); }
-.tree-card__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 14px 10px; }
-.tree-card__title { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
-.tree-card__count { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 6px; background: var(--panel-2); color: var(--text-dim); }
-.tree-card__tools { display: flex; gap: 2px; }
-.tree-card__search { padding: 0 14px 10px; }
-.tree-card__search .search { min-width: 0; }
-.tree-card__search .input { height: 34px; border-radius: 9px; font-size: 13px; }
-.tree-card__body { flex: 1; overflow: auto; padding: 0 8px 10px; border-top: 1px solid var(--border); padding-top: 8px; }
-.tree-card__legend { display: flex; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--text-faint); }
-.tree-card__legend span { display: inline-flex; align-items: center; gap: 5px; }
+.tree-card { display: flex; flex-direction: column; max-height: calc(100vh - var(--header-h) - 44px); overflow: hidden; }
+.tree-card__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 14px 12px 16px; }
+.tree-card__heading { display: flex; flex-direction: column; min-width: 0; }
+.tree-card__title { font-size: 14px; font-weight: 700; }
+.tree-card__sub { font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+.tree-card__search {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  margin: 0 12px 10px; height: 36px; padding: 0 8px 0 11px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  color: var(--text-faint); transition: border-color .15s, box-shadow .15s;
+}
+.tree-card__search:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); color: var(--text-dim); }
+.tree-card__search svg { flex: none; }
+.tree-card__search input { flex: 1; min-width: 0; height: 100%; border: none; outline: none; background: transparent; color: var(--text); font-size: 13px; }
+.tree-card__search input::placeholder { color: var(--text-faint); }
+.tree-card__kbd {
+  display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px;
+  border: 1px solid var(--border); border-radius: 5px; background: var(--panel-2);
+  font: 600 11px/1 inherit; color: var(--text-faint);
+}
+.tree-card__clear { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: none; border-radius: 6px; background: transparent; color: var(--text-faint); }
+.tree-card__clear:hover { background: var(--hover); color: var(--text); }
+
+.tree-card__pinned { padding: 0 8px 6px; border-bottom: 1px solid var(--border); }
+.tree-card__body { flex: 1; min-height: 80px; overflow: auto; padding: 6px 8px 10px; }
+.tree-card__skel { display: grid; gap: 8px; padding: 6px; }
+
+/* Footer: selection path, or the level legend when nothing deep is selected. */
+.tree-card__path, .tree-card__legend {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px;
+  padding: 10px 14px; border-top: 1px solid var(--border); background: var(--panel);
+  font-size: 12px; color: var(--text-dim);
+}
+.tree-card__path { gap: 2px; flex-wrap: nowrap; overflow: hidden; }
+.tree-card__crumb { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.tree-card__crumb > button {
+  max-width: 120px; padding: 2px 5px; border: none; border-radius: 5px; background: none;
+  color: var(--text-dim); font-size: 12px; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tree-card__crumb > button:hover { background: var(--hover); color: var(--text); }
+.tree-card__crumb > button.is-current { color: var(--brand); font-weight: 600; }
+.tree-card__sep { flex: none; color: var(--text-faint); }
+.tree-card__key { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+
+/* Tree rows */
 .tree, .tree__group { list-style: none; margin: 0; padding: 0; }
-.tree__group { position: relative; margin-left: 17px; padding-left: 8px; }
+.tree__group { position: relative; margin-left: 13px; padding-left: 10px; }
 .tree__group::before {
-  content: ''; position: absolute; left: 0; top: 0; bottom: 14px;
+  content: ''; position: absolute; left: 0; top: 2px; bottom: 16px;
   width: 1px; background: var(--border);
 }
 .tree__group > .tree__node { position: relative; }
 .tree__group > .tree__node::before {
-  content: ''; position: absolute; left: -8px; top: 19px;
+  content: ''; position: absolute; left: -10px; top: 17px;
   width: 8px; height: 1px; background: var(--border);
 }
 .tree__row {
   position: relative;
-  display: flex; align-items: center; gap: 6px;
-  min-height: 38px; padding: 3px 8px 3px 2px; margin: 1px 0;
-  border-radius: 9px; cursor: pointer; user-select: none;
+  display: flex; align-items: center; gap: 8px;
+  min-height: 34px; padding: 3px 8px 3px 2px; margin: 1px 0;
+  border-radius: 8px; cursor: pointer; user-select: none;
   color: var(--text); outline: none;
   transition: background .1s;
 }
@@ -639,28 +677,32 @@ p { margin: 0; }
 .tree__row:focus-visible { box-shadow: inset 0 0 0 2px var(--brand); }
 .tree__row.is-selected { background: var(--brand-soft); }
 .tree__row.is-selected .tree__name { color: var(--brand); }
-.tree__row.is-selected::after {
-  content: ''; position: absolute; right: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 3px 0 0 3px; background: var(--brand);
-}
+.tree__row.is-selected .tree__id { color: color-mix(in srgb, var(--brand) 70%, var(--text-dim)); }
+.tree__row--all { padding-left: 6px; }
 .tree__toggle {
-  width: 22px; height: 22px; flex: none; padding: 0;
+  width: 20px; height: 20px; flex: none; padding: 0; margin-right: -4px;
   display: grid; place-items: center;
-  border: none; border-radius: 6px; background: transparent; color: var(--text-dim);
+  border: none; border-radius: 5px; background: transparent; color: var(--text-faint);
 }
 .tree__toggle:hover { background: var(--panel-2); color: var(--text); }
-.tree__toggle svg { transition: transform .15s; }
+.tree__toggle svg { transition: transform .15s ease; }
 .tree__toggle.is-open svg { transform: rotate(90deg); }
-.tree__leaf { width: 22px; flex: none; display: grid; place-items: center; }
-.tree__leaf::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--border-strong); }
-.tree__text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.2; }
-.tree__name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tree__id { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tree__count { flex: none; font-size: 11px; font-weight: 700; color: var(--text-faint); background: var(--panel-2); border-radius: 6px; padding: 1px 6px; font-variant-numeric: tabular-nums; }
+.tree__leaf { width: 20px; flex: none; margin-right: -4px; }
+.tree__text { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex: 1; }
+.tree__name { flex: 0 1 auto; min-width: 0; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree__id { flex: 0 10 auto; min-width: 0; font-size: 11.5px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree__count {
+  flex: none; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 9px;
+  display: grid; place-items: center;
+  font-size: 10.5px; font-weight: 700; color: var(--text-faint); font-variant-numeric: tabular-nums;
+}
+.tree__row:hover .tree__count { background: var(--panel-2); color: var(--text-dim); }
 .tree__row.is-selected .tree__count { background: color-mix(in srgb, var(--brand) 18%, transparent); color: var(--brand); }
 .tree mark { background: var(--accent-soft); color: var(--accent); border-radius: 3px; padding: 0 1px; }
-.tree__all { margin-bottom: 4px; }
-.tree__all-ico { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: var(--panel-2); color: var(--text-dim); flex: none; margin-left: 22px; }
-.tree__empty { padding: 20px 10px; text-align: center; font-size: 13px; color: var(--text-dim); }
+.tree__all-ico { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; background: var(--panel-2); color: var(--text-dim); flex: none; }
+.tree__row--all.is-selected .tree__all-ico { background: color-mix(in srgb, var(--brand) 18%, transparent); color: var(--brand); }
+.tree__empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 24px 10px; text-align: center; font-size: 13px; color: var(--text-dim); }
+.tree__empty svg { color: var(--text-faint); }
 
 /* Scope chip shown above tables when a tree node is selected */
 .scope {
@@ -939,7 +981,7 @@ p { margin: 0; }
 @media (max-width: 1024px) {
   .split { grid-template-columns: minmax(0, 1fr); }
   .split__aside { position: static; }
-  .tree-card { max-height: 360px; }
+  .tree-card { max-height: 380px; }
   .kv { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 900px) {

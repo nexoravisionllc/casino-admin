@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LevelBadge, UserBadge, levelLetter } from './LevelBadge.jsx';
-import { SearchInput } from './ui.jsx';
-import { ChevronRightIcon, CollapseIcon, ExpandIcon, LayersIcon } from './Icons.jsx';
+import { ChevronRightIcon, CloseIcon, CollapseIcon, ExpandIcon, LayersIcon, SearchIcon } from './Icons.jsx';
 
 const ALL = '__all__';
 
@@ -16,15 +15,17 @@ function Highlight({ text, q }) {
   return <>{text.slice(0, i)}<mark>{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length)}</>;
 }
 
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 /**
  * Hierarchy browser for agents and members.
  *
- * - search filters the tree, keeping the ancestors of every match visible
- * - expand / collapse all; big trees start with only the top level open
+ * - search filters the tree (ancestors of matches stay visible), "/" focuses it
+ * - one-click expand / collapse all; big trees start with only the top level open
  * - descendant counts on every branch
- * - optional "All" row (allLabel) that clears the selection
+ * - optional pinned "All" row (allLabel) that clears the selection
  * - keyboard: ↑ ↓ move, → expand / enter, ← collapse / parent, Enter select
- * - the selected node is always revealed and scrolled into view
+ * - the selected node is always revealed, scrolled into view, and its path shown
  */
 export default function TreeView({
   nodes, selectedId, onSelect, title = 'Members', allLabel, loading, emptyText = 'Nothing here yet.',
@@ -35,35 +36,37 @@ export default function TreeView({
   const initialized = useRef(false);
   const rowRefs = useRef(new Map());
   const bodyRef = useRef(null);
+  const searchRef = useRef(null);
   const q = query.trim().toLowerCase();
 
-  // Index: parent links, descendant counts, branch ids, roles present.
+  // Index: parent links, node lookup, descendant counts, branch ids, roles present.
   const index = useMemo(() => {
     const parent = new Map();
+    const byId = new Map();
     const counts = new Map();
     const branches = [];
     const roles = new Set();
-    let total = 0;
-    let hasUsers = false;
+    let agents = 0;
+    let users = 0;
     const walk = (list, parentId, depth) => {
-      let agents = 0;
-      let users = 0;
+      let a = 0;
+      let u = 0;
       for (const n of list) {
-        total++;
         parent.set(n.id, parentId);
-        if (n.kind === 'agent') { agents++; roles.add(n.data.role); } else { users++; hasUsers = true; }
+        byId.set(n.id, n);
+        if (n.kind === 'agent') { a++; agents++; roles.add(n.data.role); } else { u++; users++; }
         if (n.children.length) {
           branches.push({ id: n.id, depth });
           const c = walk(n.children, n.id, depth + 1);
           counts.set(n.id, c);
-          agents += c.agents;
-          users += c.users;
+          a += c.agents;
+          u += c.users;
         }
       }
-      return { agents, users };
+      return { agents: a, users: u };
     };
     walk(nodes, null, 0);
-    return { parent, counts, branches, roles: [...roles].sort((a, b) => a - b), hasUsers, total };
+    return { parent, byId, counts, branches, roles: [...roles].sort((x, y) => x - y), agents, users, total: agents + users };
   }, [nodes]);
 
   // Large trees start with only the first level open.
@@ -73,24 +76,41 @@ export default function TreeView({
     if (index.total > 120) setCollapsed(new Set(index.branches.filter((b) => b.depth >= 1).map((b) => b.id)));
   }, [index]);
 
+  // "/" focuses the search box (unless typing somewhere already).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target;
+      if (t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
   // Search: nodes that match or have a matching descendant.
-  const visible = useMemo(() => {
+  const search = useMemo(() => {
     if (!q) return null;
     const keep = new Set();
+    let matches = 0;
     const walk = (list) => {
       let any = false;
       for (const n of list) {
         const self = n.data.name.toLowerCase().includes(q) || n.data.loginId.toLowerCase().includes(q);
+        if (self) matches++;
         const child = walk(n.children);
         if (self || child) { keep.add(n.id); any = true; }
       }
       return any;
     };
     walk(nodes);
-    return keep;
+    return { keep, matches };
   }, [nodes, q]);
+  const visible = search?.keep ?? null;
 
   const isOpen = useCallback((id) => (visible ? true : !collapsed.has(id)), [visible, collapsed]);
+  const allOpen = collapsed.size === 0;
 
   // Visible rows in order, for keyboard navigation.
   const flat = useMemo(() => {
@@ -98,7 +118,7 @@ export default function TreeView({
     const walk = (list) => {
       for (const n of list) {
         if (visible && !visible.has(n.id)) continue;
-        out.push({ id: n.id, hasChildren: n.children.length > 0, node: n });
+        out.push({ id: n.id, hasChildren: n.children.length > 0 });
         if (n.children.length && isOpen(n.id)) walk(n.children);
       }
     };
@@ -108,7 +128,7 @@ export default function TreeView({
 
   // Reveal + scroll to the selection whenever it changes.
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId) return undefined;
     setCollapsed((prev) => {
       let p = index.parent.get(selectedId);
       if (p == null || !prev.size) return prev;
@@ -127,13 +147,25 @@ export default function TreeView({
     return () => clearTimeout(t);
   }, [selectedId, index]);
 
+  // Path from the root to the selection, for the footer breadcrumb.
+  const path = useMemo(() => {
+    const out = [];
+    let id = selectedId;
+    while (id != null) {
+      const n = index.byId.get(id);
+      if (!n) break;
+      out.unshift(n);
+      id = index.parent.get(id);
+    }
+    return out;
+  }, [selectedId, index]);
+
   const toggle = (id) => setCollapsed((prev) => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
     return next;
   });
-  const expandAll = () => setCollapsed(new Set());
-  const collapseAll = () => setCollapsed(new Set(index.branches.map((b) => b.id)));
+  const toggleAll = () => setCollapsed(allOpen ? new Set(index.branches.map((b) => b.id)) : new Set());
 
   const select = (id) => onSelect(id === ALL ? null : id);
   const focusRow = (id) => {
@@ -172,14 +204,15 @@ export default function TreeView({
     if (handled) e.preventDefault();
   };
 
-  const tabbable = focusId ?? selectedId ?? flat[0]?.id;
+  const current = selectedId ?? (allLabel ? ALL : null);
+  const tabbable = focusId ?? current ?? flat[0]?.id;
 
-  const rowProps = (id, extra = {}) => ({
+  const rowProps = (id, className = '') => ({
     ref: (el) => { if (el) rowRefs.current.set(id, el); else rowRefs.current.delete(id); },
     role: 'treeitem',
     tabIndex: tabbable === id ? 0 : -1,
-    'aria-selected': (selectedId ?? ALL) === id,
-    className: `tree__row ${(selectedId ?? (allLabel ? ALL : null)) === id ? 'is-selected' : ''} ${extra.className ?? ''}`,
+    'aria-selected': current === id,
+    className: `tree__row ${current === id ? 'is-selected' : ''} ${className}`,
     onClick: () => { setFocusId(id); select(id); },
     onFocus: () => setFocusId(id),
   });
@@ -190,7 +223,7 @@ export default function TreeView({
       const hasChildren = n.children.length > 0;
       const open = hasChildren && isOpen(n.id);
       const c = index.counts.get(n.id);
-      const countTitle = c && [c.agents && `${c.agents} agent${c.agents > 1 ? 's' : ''}`, c.users && `${c.users} member${c.users > 1 ? 's' : ''}`].filter(Boolean).join(' · ');
+      const countTitle = c && [c.agents && plural(c.agents, 'agent'), c.users && plural(c.users, 'member')].filter(Boolean).join(' · ');
       return (
         <li className="tree__node" role="none" key={n.id}>
           <div {...rowProps(n.id)} aria-level={depth + 1} aria-expanded={hasChildren ? open : undefined}
@@ -201,10 +234,10 @@ export default function TreeView({
                 aria-label={open ? 'Collapse' : 'Expand'}
                 onClick={(e) => { e.stopPropagation(); if (!visible) toggle(n.id); }}
               >
-                <ChevronRightIcon width={14} height={14} strokeWidth={2.5} />
+                <ChevronRightIcon width={13} height={13} strokeWidth={2.5} />
               </button>
             ) : <span className="tree__leaf" />}
-            {n.kind === 'agent' ? <LevelBadge role={n.data.role} /> : <UserBadge />}
+            {n.kind === 'agent' ? <LevelBadge role={n.data.role} size="tree" /> : <UserBadge size="tree" />}
             <span className="tree__text">
               <span className="tree__name"><Highlight text={n.data.name} q={q} /></span>
               <span className="tree__id">@<Highlight text={n.data.loginId} q={q} /></span>
@@ -216,53 +249,87 @@ export default function TreeView({
       );
     });
 
+  const summary = q
+    ? (search.matches ? `${plural(search.matches, 'match')} for “${query.trim()}”` : `No match for “${query.trim()}”`)
+    : [index.agents && plural(index.agents, 'agent'), index.users && plural(index.users, 'member')].filter(Boolean).join(' · ') || '—';
+
   return (
     <section className="card tree-card">
       <div className="tree-card__head">
-        <span className="tree-card__title">
-          {title}
-          <span className="tree-card__count">{index.total}</span>
-        </span>
-        <span className="tree-card__tools">
-          <button type="button" className="icon-btn icon-btn--plain icon-btn--sm" onClick={expandAll} title="Expand all" aria-label="Expand all" disabled={!!visible}>
-            <ExpandIcon width={15} height={15} />
-          </button>
-          <button type="button" className="icon-btn icon-btn--plain icon-btn--sm" onClick={collapseAll} title="Collapse all" aria-label="Collapse all" disabled={!!visible}>
-            <CollapseIcon width={15} height={15} />
-          </button>
-        </span>
+        <div className="tree-card__heading">
+          <span className="tree-card__title">{title}</span>
+          <span className="tree-card__sub">{summary}</span>
+        </div>
+        <button
+          type="button" className="icon-btn icon-btn--sm" onClick={toggleAll} disabled={!!visible || !index.branches.length}
+          title={allOpen ? 'Collapse all' : 'Expand all'} aria-label={allOpen ? 'Collapse all' : 'Expand all'}
+        >
+          {allOpen ? <CollapseIcon width={15} height={15} /> : <ExpandIcon width={15} height={15} />}
+        </button>
       </div>
+
       <div className="tree-card__search">
-        <SearchInput value={query} onChange={setQuery} placeholder="Find name or ID" />
+        <SearchIcon width={15} height={15} />
+        <input
+          ref={searchRef} value={query} placeholder="Find name or ID" autoComplete="off" aria-label={`Search ${title}`}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { setQuery(''); e.currentTarget.blur(); }
+            if (e.key === 'ArrowDown' && flat.length) { e.preventDefault(); focusRow(flat[0].id); }
+          }}
+        />
+        {query
+          ? <button type="button" className="tree-card__clear" onClick={() => setQuery('')} aria-label="Clear search"><CloseIcon width={13} height={13} /></button>
+          : <kbd className="tree-card__kbd" title="Press / to search">/</kbd>}
       </div>
+
+      {allLabel && !q && (
+        <div className="tree-card__pinned" role="tree" aria-label={`${title}: all`} onKeyDown={onKeyDown}>
+          <div {...rowProps(ALL, 'tree__row--all')} aria-level={1}>
+            <span className="tree__all-ico"><LayersIcon width={14} height={14} /></span>
+            <span className="tree__text"><span className="tree__name">{allLabel}</span></span>
+            <span className="tree__count">{index.total}</span>
+          </div>
+        </div>
+      )}
+
       <div className="tree-card__body" ref={bodyRef}>
         {loading && !nodes.length ? (
-          <div style={{ display: 'grid', gap: 8, padding: 6 }}>
-            {[0, 1, 2, 3].map((i) => <div key={i} className="skel" style={{ height: 30, marginLeft: (i % 3) * 18 }} />)}
+          <div className="tree-card__skel">
+            {[0, 1, 2, 3, 4].map((i) => <div key={i} className="skel" style={{ height: 28, marginLeft: [0, 16, 32, 16, 0][i] }} />)}
           </div>
         ) : (
           <ul className="tree" role="tree" aria-label={title} onKeyDown={onKeyDown}>
-            {allLabel && !q && (
-              <li className="tree__node tree__all" role="none">
-                <div {...rowProps(ALL)} aria-level={1}>
-                  <span className="tree__all-ico"><LayersIcon width={14} height={14} /></span>
-                  <span className="tree__text"><span className="tree__name">{allLabel}</span></span>
-                  <span className="tree__count">{index.total}</span>
-                </div>
+            {renderList(nodes, 0)}
+            {visible && !visible.size && (
+              <li className="tree__empty" role="none">
+                <SearchIcon width={18} height={18} />
+                <span>No one matches “{query.trim()}”.</span>
+                <button type="button" className="linklike" onClick={() => setQuery('')}>Clear search</button>
               </li>
             )}
-            {renderList(nodes, 0)}
-            {visible && !visible.size && <li className="tree__empty" role="none">No match for “{query}”.</li>}
             {!visible && !nodes.length && <li className="tree__empty" role="none">{emptyText}</li>}
           </ul>
         )}
       </div>
-      {(index.roles.length > 0) && (
-        <div className="tree-card__legend">
-          {index.roles.map((r) => (
-            <span key={r}><LevelBadge role={r} size="sm" /> {r === 1 ? 'Admin' : `Level ${levelLetter(r)}`}</span>
+
+      {path.length > 1 ? (
+        <div className="tree-card__path" title={path.map((n) => n.data.name).join(' › ')}>
+          {path.map((n, i) => (
+            <span key={n.id} className="tree-card__crumb">
+              {i > 0 && <ChevronRightIcon width={11} height={11} className="tree-card__sep" />}
+              <button type="button" onClick={() => select(n.id)} className={i === path.length - 1 ? 'is-current' : ''}>{n.data.name}</button>
+            </span>
           ))}
-          {index.hasUsers && <span><UserBadge size="sm" /> Member</span>}
+        </div>
+      ) : index.roles.length > 0 && (
+        <div className="tree-card__legend" aria-label="Legend">
+          {index.roles.map((r) => (
+            <span key={r} className="tree-card__key">
+              <LevelBadge role={r} size="xs" />{r === 1 ? 'Admin' : `Level ${levelLetter(r)}`}
+            </span>
+          ))}
+          {index.users > 0 && <span className="tree-card__key"><UserBadge size="xs" />Member</span>}
         </div>
       )}
     </section>
