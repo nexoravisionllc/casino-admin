@@ -1,187 +1,161 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useRealtime } from '../context/RealtimeContext.jsx';
 import { apiRequest } from '../api/client.js';
-import Header from '../components/Header.jsx';
-import Sidebar from '../components/Sidebar.jsx';
-import AgentPanel from '../components/AgentPanel.jsx';
-import MembersPanel from '../components/MembersPanel.jsx';
-import GamePanel from '../components/GamePanel.jsx';
-import SystemPanel from '../components/SystemPanel.jsx';
-import SettingPage from '../components/SettingPage.jsx';
-import MoneyPanel from '../components/MoneyPanel.jsx';
-import { AgentsList, AgentsTreeview } from '../components/AgentsViews.jsx';
-import { UsersList, WaitedUsers } from '../components/UsersViews.jsx';
-import { GameHistoryView } from '../components/GameHistoryViews.jsx';
-import { DepositView, TransactionHistoryView } from '../components/TransactionsViews.jsx';
-import { ProvidersView, GamesView } from '../components/GamesViews.jsx';
-import { AreaChart, BarChart } from '../components/Charts.jsx';
+import { useStats } from '../context/StatsContext.jsx';
+import { PageHeader, Card, Stat, Delta, Alert, Empty, Badge } from '../components/ui.jsx';
+import { AreaChart, BarChart, Legend } from '../components/Charts.jsx';
+import RtpModal from '../components/RtpModal.jsx';
+import { usd, pts, int, timeAgo, dateLong } from '../lib/format.js';
+import {
+  GateIcon, DollarIcon, NetworkIcon, UsersIcon, DepositIcon, WithdrawIcon, ArrowRightIcon,
+  EditIcon, RefreshIcon, UserClockIcon,
+} from '../components/Icons.jsx';
+
+const SERIES = [
+  { key: 'bet', label: 'Bets', color: 'var(--brand)' },
+  { key: 'win', label: 'Wins', color: 'var(--accent)' },
+];
+
+const FLOW = {
+  agentToUser: { from: 'Agent', to: 'User' },
+  userToAgent: { from: 'User', to: 'Agent' },
+  userToProvider: { from: 'User', to: 'Game Provider' },
+  providerToUser: { from: 'Game Provider', to: 'User' },
+};
 
 export default function Dashboard() {
-  const { token, logout } = useAuth();
-  const location = useLocation();
+  const { token, partner } = useAuth();
+  const { tick } = useRealtime();
+  const { stats } = useStats();
   const navigate = useNavigate();
-  const { view } = useParams();
-
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [rtpOpen, setRtpOpen] = useState(false);
+  const [updated, setUpdated] = useState(null);
 
-  // Section and sub-view come from the URL so routing works and is shareable.
-  const isAgents = location.pathname.startsWith('/agents');
-  const isMembers = location.pathname.startsWith('/members');
-  const isMoney = location.pathname.startsWith('/money');
-  const isGames = location.pathname.startsWith('/games');
-  const isSystem = location.pathname.startsWith('/system');
-  const section = isSystem ? 'system' : isGames ? 'games' : isMoney ? 'money' : isMembers ? 'members' : isAgents ? 'agents' : 'dashboard';
-  const agentView = view === 'list' ? 'list' : 'treeview';
-  const memberView = ['waited', 'transactions', 'gamehistory'].includes(view) ? view : 'list';
-  const moneyView = ['withdraw', 'transaction', 'point-log'].includes(view) ? view : 'deposit';
-  const gameView = view === 'list' ? 'list' : 'providers';
-  const systemView = ['notices', 'events'].includes(view) ? view : 'setting';
+  const load = () => apiRequest(`/dashboard?tz=${new Date().getTimezoneOffset()}`, { token })
+    .then((d) => { setData(d); setError(''); setUpdated(new Date()); })
+    .catch((e) => setError(e.message));
 
   useEffect(() => {
-    let cancelled = false;
-    const load = () => apiRequest('/dashboard', { token })
-      .then((d) => { if (!cancelled) setData(d); })
-      .catch((err) => { if (!cancelled) setError(err.message); });
     load();
-    // Refresh every 5s so the live FortuneGate header value stays current.
-    const id = setInterval(load, 5000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [token]);
+    const id = setInterval(() => { if (!document.hidden) load(); }, 30000);
+    return () => clearInterval(id);
+  }, [token, tick]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const selectSection = (key) => {
-    if (key === 'agents') {
-      setPanelOpen(true);
-      navigate('/agents/treeview');
-    } else if (key === 'members') {
-      setPanelOpen(true);
-      navigate('/members/list');
-    } else if (key === 'money') {
-      setPanelOpen(true);
-      navigate('/money/deposit');
-    } else if (key === 'games') {
-      setPanelOpen(true);
-      navigate('/games/providers');
-    } else if (key === 'system') {
-      setPanelOpen(true);
-      navigate('/system/setting');
-    } else if (key === 'dashboard') {
-      navigate('/');
-    }
-  };
-
-  const showAgentPanel = isAgents && panelOpen;
-  const showMembersPanel = isMembers && panelOpen;
-  const showMoneyPanel = isMoney && panelOpen;
-  const showGamePanel = isGames && panelOpen;
-  const showSystemPanel = isSystem && panelOpen;
+  const h = stats ?? data?.header ?? {};
+  const loading = !data && !error;
+  const weekly = (data?.weekly ?? []).map((d) => ({ ...d, title: dateLong(`${d.date}T12:00:00Z`) }));
+  const monthly = data?.monthly ?? [];
+  const weekBet = weekly.reduce((a, d) => a + d.bet, 0);
+  const weekWin = weekly.reduce((a, d) => a + d.win, 0);
+  const pendingTotal = Number(h.deposit ?? 0) + Number(h.withdraw ?? 0);
+  const hour = new Date().getHours();
+  const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   return (
-    <div className="dash">
-      {/* Header spans the full width at the top. */}
-      <Header stats={data?.header} />
+    <div className="page">
+      <PageHeader
+        title={`${greet}, ${partner?.name ?? ''}`}
+        subtitle={`Here’s what’s happening today · ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}`}
+        actions={
+          <button className="btn btn--ghost" onClick={load} title={updated ? `Updated ${updated.toLocaleTimeString()}` : undefined}>
+            <RefreshIcon width={15} height={15} /> Refresh
+          </button>
+        }
+      />
 
-      <div className="dash__lower">
-        <Sidebar active={section} onSelect={selectSection} />
+      {error && <Alert>{error}</Alert>}
 
-        {showAgentPanel && (
-          <AgentPanel
-            activeView={agentView}
-            onSelectView={(v) => navigate(`/agents/${v}`)}
-            onCollapse={() => setPanelOpen(false)}
-          />
-        )}
-
-        {showMembersPanel && (
-          <MembersPanel
-            activeView={memberView}
-            onSelectView={(v) => navigate(`/members/${v}`)}
-            onCollapse={() => setPanelOpen(false)}
-          />
-        )}
-
-        {showMoneyPanel && (
-          <MoneyPanel
-            activeView={moneyView}
-            onSelectView={(v) => navigate(`/money/${v}`)}
-            onCollapse={() => setPanelOpen(false)}
-          />
-        )}
-
-        {showGamePanel && (
-          <GamePanel
-            activeView={gameView}
-            onSelectView={(v) => navigate(`/games/${v}`)}
-            onCollapse={() => setPanelOpen(false)}
-          />
-        )}
-
-        {showSystemPanel && (
-          <SystemPanel
-            activeView={systemView}
-            onSelectView={(v) => navigate(`/system/${v}`)}
-            onCollapse={() => setPanelOpen(false)}
-          />
-        )}
-
-        <div className="dash__body">
-          {section === 'system' ? (
-            systemView === 'setting' ? <SettingPage /> : <p className="setting__placeholder">{systemView === 'notices' ? 'Notices' : 'Create Events'} — coming soon.</p>
-          ) : section === 'members' ? (
-            memberView === 'list' ? <UsersList />
-              : memberView === 'waited' ? <WaitedUsers />
-              : memberView === 'gamehistory' ? <GameHistoryView />
-              : <p className="setting__placeholder">Transaction - Coming Soon</p>
-          ) : section === 'money' ? (
-            moneyView === 'deposit'
-              ? <DepositView key="deposit" defaultType="deposit" title="Deposit" />
-              : moneyView === 'withdraw'
-              ? <DepositView key="withdraw" defaultType="withdraw" title="Withdraw" />
-              : moneyView === 'transaction'
-              ? <TransactionHistoryView />
-              : <p className="setting__placeholder">Point Log - Coming Soon</p>
-          ) : section === 'games' ? (
-            gameView === 'providers' ? <ProvidersView /> : <GamesView />
-          ) : section === 'agents' ? (
-            agentView === 'treeview' ? <AgentsTreeview /> : <AgentsList />
-          ) : (
-            <>
-              {error && (
-                <p className="dash__error">
-                  {error} <button className="linklike" onClick={logout}>Sign in again</button>
-                </p>
-              )}
-
-              <div className="cards">
-                {(data?.cards ?? []).map((c) => (
-                  <div className="card" key={c.title}>
-                    <div className="card__title">{c.title}</div>
-                    <div className="card__value">{Number(c.value).toLocaleString('en-US')}</div>
-                    <div className="card__sub">
-                      Percentile from previous day
-                      <span className="card__delta">↓ {c.changePercent}%</span>
-                    </div>
-                    <div className="card__spark" />
-                  </div>
-                ))}
-              </div>
-
-              <div className="charts">
-                <section className="panel">
-                  <h2 className="panel__title">Weekly Data</h2>
-                  <AreaChart data={data?.weeklyData ?? []} />
-                </section>
-                <section className="panel">
-                  <h2 className="panel__title">Monthly Game Report</h2>
-                  <BarChart data={data?.monthlyData ?? []} />
-                </section>
-              </div>
-            </>
-          )}
-        </div>
+      <div className="stats">
+        <Stat
+          hero label="Fortune Gate balance" icon={GateIcon} tone="gold"
+          value={stats || data ? usd(h.fortuneGate) : '—'}
+          foot={<>RTP <b>{Number(h.fortuneRtp ?? 0)}%</b>
+            <button className="btn btn--sm btn--ghost stat__edit" onClick={() => setRtpOpen(true)}><EditIcon width={12} height={12} /> Change</button></>}
+        />
+        <Stat
+          label="Member balance" icon={DollarIcon} tone="green"
+          value={usd(h.userBalance)} foot={<>Points <b>{pts(h.userPoints)}</b></>}
+          onClick={() => navigate('/members/list')}
+        />
+        <Stat
+          label="Agent balance" icon={NetworkIcon} tone="blue"
+          value={usd(h.partnerBalance)} foot={<>Points <b>{pts(h.partnerPoints)}</b></>}
+          onClick={() => navigate('/agents/list')}
+        />
+        <Stat
+          label="Members" icon={UsersIcon} tone="violet"
+          value={int(h.totalUsers ?? h.connectedUsers)}
+          foot={Number(h.waitedUsers) > 0
+            ? <><Badge tone="orange">{int(h.waitedUsers)} waiting</Badge> <Link className="linklike" to="/members/waited">Review</Link></>
+            : <>{int(h.totalAgents)} agents · none waiting</>}
+          onClick={() => navigate('/members/list')}
+        />
       </div>
+
+      <div className="stats">
+        {(data?.cards ?? Object.keys(FLOW).map((key) => ({ key }))).map((c) => (
+          <Stat
+            key={c.key} small
+            label={<span className="flow__dir">{FLOW[c.key]?.from} <ArrowRightIcon width={13} height={13} /> {FLOW[c.key]?.to}</span>}
+            value={loading ? <span className="skel" style={{ display: 'block', height: 24, width: '60%' }} /> : usd(c.value)}
+            foot={loading ? null : <><Delta value={c.changePercent} /> vs yesterday <b>{usd(c.previous)}</b></>}
+          />
+        ))}
+      </div>
+
+      <div className="dash-grid">
+        <Card
+          title="Last 7 days" subtitle={`Bets ${usd(weekBet)} · Wins ${usd(weekWin)} · GGR ${usd(weekBet - weekWin)}`}
+          actions={<Legend series={SERIES} />}
+        >
+          <AreaChart data={weekly} series={SERIES} height={250} />
+        </Card>
+
+        <Card
+          title="Pending requests" subtitle={pendingTotal ? `${pendingTotal} waiting for review` : 'All caught up'}
+          bodyClass="card__body--flush"
+          actions={
+            <div style={{ display: 'flex', gap: 6 }}>
+              <Link className="btn btn--sm btn--ghost" to="/money/deposit">Deposits{Number(h.deposit) > 0 && <Badge tone="orange">{h.deposit}</Badge>}</Link>
+              <Link className="btn btn--sm btn--ghost" to="/money/withdraw">Withdrawals{Number(h.withdraw) > 0 && <Badge tone="orange">{h.withdraw}</Badge>}</Link>
+            </div>
+          }
+        >
+          <div style={{ paddingTop: 12 }}>
+            {data?.pending?.length ? (
+              <ul className="reqlist">
+                {data.pending.map((t) => (
+                  <li className="reqlist__item" key={t.uid}>
+                    <span className={`reqlist__ico reqlist__ico--${t.type}`}>
+                      {t.type === 'deposit' ? <DepositIcon width={17} height={17} /> : <WithdrawIcon width={17} height={17} />}
+                    </span>
+                    <span className="reqlist__main">
+                      <strong>@{t.userId}</strong>
+                      <span>{t.type === 'deposit' ? 'Deposit' : 'Withdrawal'} · {timeAgo(t.createdAt)}</span>
+                    </span>
+                    <span className="reqlist__amt">
+                      <span className="amount">{usd(t.amount)}</span>
+                      <Link className="linklike" style={{ fontSize: 12 }} to={`/money/${t.type}`}>Review</Link>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <Empty icon={UserClockIcon} title={loading ? 'Loading…' : 'No pending requests'} text={loading ? undefined : 'New deposit and withdrawal requests will show up here.'} />
+            )}
+          </div>
+        </Card>
+      </div>
+
+      <Card title="Monthly game report" subtitle="Bets and wins over the last 12 months" actions={<Legend series={SERIES} />}>
+        <BarChart data={monthly.map((m) => ({ ...m, title: `${m.label} ${m.month.slice(0, 4)}` }))} series={SERIES} height={260} />
+      </Card>
+
+      {rtpOpen && <RtpModal current={h.fortuneRtp} onClose={() => setRtpOpen(false)} />}
     </div>
   );
 }

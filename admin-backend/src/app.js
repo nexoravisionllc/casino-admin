@@ -10,6 +10,7 @@ import { router as dashboard } from './routes/dashboard.js';
 import { router as fortuneGate } from './routes/fortuneGate.js';
 import { router as gameHistory } from './routes/gameHistory.js';
 import { router as games } from './routes/games.js';
+import { router as pointHistory } from './routes/pointHistory.js';
 import { router as gameSetting } from './routes/gameSetting.js';
 import { router as providers } from './routes/providers.js';
 import { router as transactions } from './routes/transactions.js';
@@ -39,6 +40,7 @@ export function createApp() {
   app.use('/api/game-history', gameHistory);
   app.use('/api/games', games);
   app.use('/api/gamesetting', gameSetting);
+  app.use('/api/point-history', pointHistory);
   app.use('/api/providers', providers);
   app.use('/api/transactions', transactions);
   app.use('/api/users', users);

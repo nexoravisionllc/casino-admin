@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { apiRequest } from '../api/client.js';
+import { apiRequest, AUTH_EXPIRED_EVENT } from '../api/client.js';
 
 const AuthContext = createContext(null);
 const STORAGE_KEY = 'admin-auth';
@@ -15,9 +15,18 @@ export function AuthProvider({ children }) {
   });
 
   useEffect(() => {
-    if (auth) localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
-    else localStorage.removeItem(STORAGE_KEY);
+    try {
+      if (auth) localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+      else localStorage.removeItem(STORAGE_KEY);
+    } catch { /* storage blocked */ }
   }, [auth]);
+
+  // Sign out automatically when the API rejects the stored token.
+  useEffect(() => {
+    const onExpired = () => setAuth(null);
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+  }, []);
 
   const login = async (loginId, password) => {
     const data = await apiRequest('/auth/login', {

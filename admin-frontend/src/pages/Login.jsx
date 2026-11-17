@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useTheme } from '../context/ThemeContext.jsx';
 import Logo from '../components/Logo.jsx';
-import { EyeIcon } from '../components/Icons.jsx';
+import { Alert, Spinner } from '../components/ui.jsx';
+import { EyeIcon, EyeOffIcon, NetworkIcon, WalletIcon, BoltIcon, MoonIcon, SunIcon } from '../components/Icons.jsx';
 
 export default function Login() {
   const { login } = useAuth();
+  const { theme, toggle } = useTheme();
   const navigate = useNavigate();
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
@@ -22,65 +25,72 @@ export default function Login() {
       navigate('/');
     } catch (err) {
       setError(err.message);
-    } finally {
       setLoading(false);
     }
   };
 
   return (
     <div className="login">
-      {/* Purple branding panel with soft wave shapes. */}
-      <div className="login__brand">
-        <div className="login__logo"><Logo light /></div>
-        <svg className="login__wave login__wave--1" viewBox="0 0 400 800" preserveAspectRatio="none">
-          <path d="M0 120 C120 200 60 380 180 460 C300 540 220 720 360 800 L0 800 Z" />
-        </svg>
-        <svg className="login__wave login__wave--2" viewBox="0 0 400 800" preserveAspectRatio="none">
-          <path d="M0 260 C140 320 80 500 220 560 C320 600 300 740 400 780 L0 800 Z" />
-        </svg>
-        <span className="login__copy">Copyright © 2026 <strong>BC-SOLUTION</strong></span>
-      </div>
+      <button className="icon-btn login__theme" onClick={toggle} aria-label="Toggle theme" title="Toggle theme">
+        {theme === 'dark' ? <SunIcon width={18} height={18} /> : <MoonIcon width={18} height={18} />}
+      </button>
 
-      {/* Form panel (Language Select removed). */}
-      <div className="login__panel">
-        <form className="login__form" onSubmit={handleSubmit}>
-          <label className="field">
-            <span className="field__label">ID</span>
-            <input
-              className="field__input"
-              type="text"
-              value={loginId}
-              onChange={(e) => setLoginId(e.target.value)}
-              placeholder="Enter your ID"
-              autoComplete="username"
-              required
-            />
-          </label>
+      <div className="login__card">
+        <div className="login__promo">
+          <span className="login__rings" />
+          <Logo size="lg" tag={false} />
+          <div className="login__headline">
+            <h2>Admin &amp; Agent<br />Control Center</h2>
+            <p>Manage your agent network, members, money flow and games from one place.</p>
+          </div>
+          <ul className="login__features">
+            <li><span><NetworkIcon width={16} height={16} /></span>Multi-level agent hierarchy &amp; commissions</li>
+            <li><span><WalletIcon width={16} height={16} /></span>Deposits, withdrawals and balance control</li>
+            <li><span><BoltIcon width={16} height={16} /></span>Real-time updates across every page</li>
+          </ul>
+          <span className="login__copy">© {new Date().getFullYear()} BC-SOLUTION. All rights reserved.</span>
+        </div>
 
-          <label className="field">
-            <span className="field__label">Password</span>
-            <div className="field__pw">
+        <div className="login__body">
+          <div className="login__mobile-logo"><Logo /></div>
+          <div>
+            <h1>Sign in</h1>
+            <p>Use your admin or agent account to continue.</p>
+          </div>
+
+          <form className="login__form" onSubmit={handleSubmit}>
+            <label className="field">
+              <span className="field__label">Login ID</span>
               <input
-                className="field__input"
-                type={showPw ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                autoComplete="current-password"
-                required
+                className="input input--lg" type="text" value={loginId}
+                onChange={(e) => setLoginId(e.target.value)}
+                placeholder="Enter your ID" autoComplete="username" autoFocus required
               />
-              <button type="button" className="field__eye" onClick={() => setShowPw((v) => !v)} aria-label="Toggle password">
-                <EyeIcon width={18} height={18} />
-              </button>
-            </div>
-          </label>
+            </label>
 
-          {error && <p className="login__error">{error}</p>}
+            <label className="field">
+              <span className="field__label">Password</span>
+              <div className="field__pw">
+                <input
+                  className="input input--lg" type={showPw ? 'text' : 'password'} value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your password" autoComplete="current-password" required
+                />
+                <button type="button" className="field__eye" onClick={() => setShowPw((v) => !v)} aria-label={showPw ? 'Hide password' : 'Show password'}>
+                  {showPw ? <EyeOffIcon width={18} height={18} /> : <EyeIcon width={18} height={18} />}
+                </button>
+              </div>
+            </label>
 
-          <button className="login__btn" type="submit" disabled={loading}>
-            {loading ? 'Signing in…' : 'Sign In'}
-          </button>
-        </form>
+            {error && <Alert>{error}</Alert>}
+
+            <button className="btn btn--primary btn--block" type="submit" disabled={loading}>
+              {loading && <Spinner />}{loading ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
+
+          <p className="login__note">Accounts are created by your upline agent. Contact them if you can’t sign in.</p>
+        </div>
       </div>
     </div>
   );

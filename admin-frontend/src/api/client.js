@@ -4,6 +4,10 @@
 //export const BASE = 'https://adminbackend.fufvkgylntiyepgk.net/api';
 export const BASE = '/api';
 
+// Fired when an authenticated request comes back 401 (expired/invalid token),
+// so the app can sign out instead of showing broken pages.
+export const AUTH_EXPIRED_EVENT = 'admin:auth-expired';
+
 export async function apiRequest(path, { method = 'GET', body, token } = {}) {
   const headers = {};
   if (body) headers['Content-Type'] = 'application/json';
@@ -23,6 +27,10 @@ export async function apiRequest(path, { method = 'GET', body, token } = {}) {
   }
 
   if (!res.ok) {
+    if (res.status === 401 && token) {
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+      throw new Error('Your session has expired. Please sign in again.');
+    }
     throw new Error(data?.message || 'Request failed. Please try again.');
   }
   return data;

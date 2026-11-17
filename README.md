@@ -71,17 +71,33 @@ Open http://localhost:5174 and sign in with `Admin` / `@12345#$%`.
 
 ## Pages
 
-- **Login** — BC-Solution branding, purple wave panel, ID + password. The
-  language-select section was removed.
-- **Dashboard** — dark icon sidebar + a gold1-style pill header + stat cards and
-  Weekly / Monthly charts.
+The UI shares the user portal's design system (dark / light theme, Inter, green
+brand + gold accent). Layout: fixed header (Fortune Gate balance + RTP, pending
+counters, account menu), grouped sidebar (collapses to an icon rail; drawer on
+mobile).
 
-## Dashboard header (based on gold1, modified)
+- **Login** — split card: brand panel + sign-in form. There is no public sign-up;
+  agents and members are created by their upline (Create sub).
+- **Dashboard** — Fortune Gate / member / agent / member-count tiles, today's money
+  flow vs. yesterday, last-7-days and 12-month bet/win charts, pending requests.
+- **Agents** — Agent Tree (tree + agent profile: wallet, downline counts, rates,
+  referral, actions) and Agent List.
+- **Members** — Members (tree-scoped list with balance/point adjust), Waiting
+  Approval, Game History.
+- **Money** — Deposits, Withdrawals (review queue with confirm dialogs),
+  Transactions, Point Log (`PointHistory` table).
+- **Games** — Providers (logo grid, change image), Games.
+- **System** — Settings (game visibility on the player site).
 
-Removed: Balance, Net P/L, HonorLink, language icon. `SlotCity` -> **Fortune
-Gate**; all `KRW` -> **USD**. Pills shown: Fortune Gate, User Balance, User
-Points, Partner Balance, Partner Points, Waited Users, Connected Users, Deposit,
-Withdraw.
+Every scoped page uses the shared `TreeView` (search, expand/collapse all,
+descendant counts, keyboard navigation). Timestamps from the API are UTC and are
+shown in the viewer's local time.
+
+## Header
+
+Fortune Gate balance and RTP (editable), plus counters for members waiting
+approval and pending deposits / withdrawals (from `GET /api/dashboard/header`,
+polled every 5 s). All amounts are USD.
 
 ## Commission rates
 

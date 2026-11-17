@@ -1,39 +1,43 @@
 import { useState } from 'react';
 import { apiRequest } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import Modal from './Modal.jsx';
+import { Alert, Field, Spinner } from './ui.jsx';
+import { EyeIcon, EyeOffIcon, KeyIcon, LinkIcon, PercentIcon, TrashIcon, UserPlusIcon } from './Icons.jsx';
 
-const RATES = [
-  { key: 'casinoRate', label: 'Casino Rate' },
-  { key: 'slotRate', label: 'Slot Rate' },
-  { key: 'sportsRate', label: 'Sport Rate' },
-];
+export const RATE_LABELS = { casinoRate: 'Casino rate', slotRate: 'Slot rate', sportsRate: 'Sports rate' };
 
-function Modal({ title, onClose, children, wide = false }) {
-  return (
-    <div className="amodal-overlay" onMouseDown={onClose}>
-      <div className={`amodal ${wide ? 'amodal--wide' : ''}`} onMouseDown={(e) => e.stopPropagation()}>
-        <div className="amodal__head">
-          <h3>{title}</h3>
-          <button className="amodal__close" onClick={onClose} aria-label="Close">✕</button>
-        </div>
-        <div className="amodal__body">{children}</div>
-      </div>
-    </div>
-  );
+/** Allowed range for an agent's rate: [highest child rate, parent rate]. */
+export function rateBounds(agents, agent, rateKey) {
+  const parent = agents.find((r) => r.uid === agent.partnerId);
+  const max = !parent || parent.role === 1 ? 100 : Number(parent[rateKey]);
+  const children = agents.filter((r) => r.partnerId === agent.uid);
+  const min = children.length ? Math.max(...children.map((c) => Number(c[rateKey]))) : 0;
+  return { min, max };
 }
 
+const Footer = ({ onClose, busy, label, busyLabel, danger }) => (
+  <>
+    <button type="button" className="btn btn--ghost" onClick={onClose}>Cancel</button>
+    <button type="submit" className={`btn ${danger ? 'btn--danger' : 'btn--primary'}`} disabled={busy}>
+      {busy && <Spinner />}{busy ? busyLabel : label}
+    </button>
+  </>
+);
+
 // Edit a single rate. The value must stay within [min, max].
-export function RateEditModal({ agent, rateKey, rateLabel, min, max, onClose, onSaved }) {
+export function RateEditModal({ agent, rateKey, min, max, onClose, onSaved }) {
   const { token } = useAuth();
+  const label = RATE_LABELS[rateKey];
   const [value, setValue] = useState(String(Number(agent[rateKey] ?? 0)));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
     const v = Number(value);
-    if (Number.isNaN(v)) return setError('Enter a number.');
-    if (v > max) return setError(`Value cannot be higher than the master's rate (${max}%).`);
-    if (v < min) return setError(`Value cannot be lower than a sub-agent's rate (${min}%).`);
+    if (value === '' || Number.isNaN(v)) return setError('Enter a number.');
+    if (v > max) return setError(`Can't be higher than the parent's rate (${max}%).`);
+    if (v < min) return setError(`Can't be lower than a sub-agent's rate (${min}%).`);
     setBusy(true);
     setError('');
     try {
@@ -43,56 +47,49 @@ export function RateEditModal({ agent, rateKey, rateLabel, min, max, onClose, on
         sportsRate: Number(agent.sportsRate),
         [rateKey]: v,
       };
-      const updated = await apiRequest(`/agents/${agent.uid}/rates`, { method: 'PUT', body, token });
-      onSaved(updated);
+      onSaved(await apiRequest(`/agents/${agent.uid}/rates`, { method: 'PUT', body, token }));
     } catch (err) {
       setError(err.message);
-    } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Modal title={`Edit ${rateLabel}`} onClose={onClose}>
-      <label className="afield">
-        <span className="afield__label">{rateLabel} (%)</span>
-        <input className="afield__input" type="number" step="0.1" value={value}
+    <Modal title={`Edit ${label.toLowerCase()}`} subtitle={`${agent.name} (@${agent.loginId})`} icon={PercentIcon}
+      onClose={onClose} onSubmit={save} footer={<Footer onClose={onClose} busy={busy} label="Save" busyLabel="Saving…" />}>
+      <Field label={`${label} (%)`} hint={`Allowed range: ${min}% – ${max}%`}>
+        <input className="input" type="number" step="0.1" min={min} max={max} value={value}
           onChange={(e) => setValue(e.target.value)} autoFocus />
-        <span className="afield__hint">Allowed range: {min}% – {max}%</span>
-      </label>
-      {error && <p className="amodal__error">{error}</p>}
-      <div className="amodal__actions">
-        <button className="btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn-primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
-      </div>
+      </Field>
+      {error && <Alert>{error}</Alert>}
     </Modal>
   );
 }
 
-// Create a sub agent or sub user under `parent`. The Agent kind (default) shows a
-// referral field and the three rate fields; the User kind hides both.
-export function CreateSubModal({ parent, onClose, onCreated }) {
+// Create a sub agent or member under `parent`.
+export function CreateSubModal({ parent, defaultKind = 'agent', onClose, onCreated }) {
   const { token } = useAuth();
   const caps = {
     casinoRate: parent.role === 1 ? 100 : Number(parent.casinoRate),
     slotRate: parent.role === 1 ? 100 : Number(parent.slotRate),
     sportsRate: parent.role === 1 ? 100 : Number(parent.sportsRate),
   };
-  const [kind, setKind] = useState('agent'); // 'agent' | 'user'
+  const [kind, setKind] = useState(defaultKind);
   const isAgent = kind === 'agent';
   const [form, setForm] = useState({
     name: '', loginId: '', password: '', email: '',
     bankName: '', bankAccount: '', bankMaster: '', referralId: '',
     casinoRate: '', slotRate: '', sportsRate: '',
   });
-  const [idState, setIdState] = useState(null); // null | 'ok' | 'taken' (agent only)
+  const [showPw, setShowPw] = useState(false);
+  const [idState, setIdState] = useState(null); // null | 'ok' | 'taken'
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  // Availability check only applies to agents (Partners table); users are separate.
+  // Availability check only applies to agents (Partners table).
   const checkId = async () => {
-    if (!form.loginId.trim()) return setIdState(null);
+    if (!isAgent || !form.loginId.trim()) return setIdState(null);
     try {
       const r = await apiRequest(`/agents/check-id?loginId=${encodeURIComponent(form.loginId.trim())}`, { token });
       setIdState(r.available ? 'ok' : 'taken');
@@ -101,14 +98,13 @@ export function CreateSubModal({ parent, onClose, onCreated }) {
 
   const submit = async () => {
     setError('');
-    if (!form.name.trim() || !form.loginId.trim() || !form.password) return setError('Name, ID and password are required.');
+    if (!form.name.trim() || !form.loginId.trim() || !form.password) return setError('Name, login ID and password are required.');
     if (isAgent && idState === 'taken') return setError(`The ID "${form.loginId}" is already taken.`);
     if (isAgent) {
-      for (const { key, label } of [
-        { key: 'casinoRate', label: 'Casino' }, { key: 'slotRate', label: 'Slot' }, { key: 'sportsRate', label: 'Sport' }]) {
+      for (const key of ['casinoRate', 'slotRate', 'sportsRate']) {
         const v = Number(form[key] || 0);
-        if (v < 0) return setError(`${label} rate cannot be negative.`);
-        if (v > caps[key]) return setError(`${label} rate can't exceed ${caps[key]}%.`);
+        if (Number.isNaN(v) || v < 0) return setError(`${RATE_LABELS[key]} must be a positive number.`);
+        if (v > caps[key]) return setError(`${RATE_LABELS[key]} can't exceed ${caps[key]}%.`);
       }
     }
     const common = {
@@ -129,61 +125,67 @@ export function CreateSubModal({ parent, onClose, onCreated }) {
             },
           })
         : await apiRequest('/users', { method: 'POST', token, body: common });
-      onCreated(created);
+      onCreated(created, kind);
     } catch (err) {
       setError(err.message);
-    } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Modal title={`Create Sub under ${parent.name}`} onClose={onClose} wide>
-      <div className="agrid">
-        <div className="afield afull">
-          <span className="afield__label">Type</span>
-          <div className="akind">
-            <button type="button" className={`akind__opt ${isAgent ? 'is-on' : ''}`} onClick={() => setKind('agent')}>Agent</button>
-            <button type="button" className={`akind__opt ${!isAgent ? 'is-on' : ''}`} onClick={() => setKind('user')}>User</button>
+    <Modal
+      title={isAgent ? 'Create sub-agent' : 'Create member'} subtitle={`Under ${parent.name} (@${parent.loginId})`}
+      icon={UserPlusIcon} size="lg" onClose={onClose} onSubmit={submit}
+      footer={<Footer onClose={onClose} busy={busy} label={isAgent ? 'Create agent' : 'Create member'} busyLabel="Creating…" />}
+    >
+      <div className="seg seg--block">
+        <button type="button" className={`seg__btn ${isAgent ? 'is-active' : ''}`} onClick={() => setKind('agent')}>Agent</button>
+        <button type="button" className={`seg__btn ${!isAgent ? 'is-active' : ''}`} onClick={() => { setKind('user'); setIdState(null); }}>Member</button>
+      </div>
+      <div className="form-grid">
+        <p className="form-section">Account</p>
+        <Field label="Name"><input className="input" value={form.name} onChange={set('name')} autoFocus /></Field>
+        <Field
+          label="Login ID"
+          hint={idState === 'ok' ? 'ID is available.' : idState === 'taken' ? 'ID is already taken.' : undefined}
+          hintTone={idState === 'ok' ? 'ok' : idState === 'taken' ? 'bad' : undefined}
+        >
+          <input className="input" autoComplete="off" value={form.loginId} onChange={(e) => { set('loginId')(e); setIdState(null); }} onBlur={checkId} />
+        </Field>
+        <Field label="Password">
+          <div className="field__pw">
+            <input className="input" type={showPw ? 'text' : 'password'} autoComplete="new-password" value={form.password} onChange={set('password')} />
+            <button type="button" className="field__eye" onClick={() => setShowPw((v) => !v)} aria-label={showPw ? 'Hide password' : 'Show password'}>
+              {showPw ? <EyeOffIcon width={17} height={17} /> : <EyeIcon width={17} height={17} />}
+            </button>
           </div>
-        </div>
-        <label className="afield"><span className="afield__label">Name</span>
-          <input className="afield__input" value={form.name} onChange={set('name')} /></label>
-        <label className="afield"><span className="afield__label">ID</span>
-          <input className="afield__input" autoComplete="off" value={form.loginId} onChange={(e) => { set('loginId')(e); setIdState(null); }} onBlur={isAgent ? checkId : undefined} />
-          {isAgent && idState === 'ok' && <span className="afield__hint afield__hint--ok">ID is available.</span>}
-          {isAgent && idState === 'taken' && <span className="afield__hint afield__hint--bad">ID is already taken.</span>}
-        </label>
-        <label className="afield"><span className="afield__label">Password</span>
-          <input className="afield__input" type="password" autoComplete="new-password" value={form.password} onChange={set('password')} /></label>
-        <label className="afield"><span className="afield__label">Email</span>
-          <input className="afield__input" type="email" value={form.email} onChange={set('email')} /></label>
-        <label className="afield"><span className="afield__label">Bank</span>
-          <input className="afield__input" value={form.bankName} onChange={set('bankName')} /></label>
-        <label className="afield"><span className="afield__label">Bank Account</span>
-          <input className="afield__input" value={form.bankAccount} onChange={set('bankAccount')} /></label>
-        <label className="afield"><span className="afield__label">Depositor</span>
-          <input className="afield__input" value={form.bankMaster} onChange={set('bankMaster')} /></label>
+        </Field>
+        <Field label="Email"><input className="input" type="email" value={form.email} onChange={set('email')} placeholder="Optional" /></Field>
+
+        <p className="form-section">Bank</p>
+        <Field label="Bank name"><input className="input" value={form.bankName} onChange={set('bankName')} /></Field>
+        <Field label="Account number"><input className="input" value={form.bankAccount} onChange={set('bankAccount')} /></Field>
+        <Field label="Depositor name" full={!isAgent}><input className="input" value={form.bankMaster} onChange={set('bankMaster')} /></Field>
         {isAgent && (
-          <label className="afield"><span className="afield__label">Referral ID</span>
-            <input className="afield__input" value={form.referralId} onChange={set('referralId')} /></label>
+          <Field label="Referral ID" hint="Members enter this code at sign-up.">
+            <input className="input" value={form.referralId} onChange={set('referralId')} placeholder="Optional" />
+          </Field>
         )}
+
         {isAgent && (
           <>
-            <label className="afield"><span className="afield__label">Casino Rate (max {caps.casinoRate}%)</span>
-              <input className="afield__input" type="number" step="0.1" value={form.casinoRate} onChange={set('casinoRate')} /></label>
-            <label className="afield"><span className="afield__label">Slot Rate (max {caps.slotRate}%)</span>
-              <input className="afield__input" type="number" step="0.1" value={form.slotRate} onChange={set('slotRate')} /></label>
-            <label className="afield"><span className="afield__label">Sport Rate (max {caps.sportsRate}%)</span>
-              <input className="afield__input" type="number" step="0.1" value={form.sportsRate} onChange={set('sportsRate')} /></label>
+            <p className="form-section">Commission rates</p>
+            <div className="field--full" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
+              {['casinoRate', 'slotRate', 'sportsRate'].map((k) => (
+                <Field key={k} label={RATE_LABELS[k]} hint={`Max ${caps[k]}%`}>
+                  <input className="input" type="number" step="0.1" min="0" max={caps[k]} value={form[k]} onChange={set(k)} placeholder="0" />
+                </Field>
+              ))}
+            </div>
           </>
         )}
       </div>
-      {error && <p className="amodal__error">{error}</p>}
-      <div className="amodal__actions">
-        <button className="btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn-primary" onClick={submit} disabled={busy}>{busy ? 'Creating…' : 'Create'}</button>
-      </div>
+      {error && <Alert>{error}</Alert>}
     </Modal>
   );
 }
@@ -199,29 +201,20 @@ export function ReferralEditModal({ agent, onClose, onSaved }) {
     setBusy(true);
     setError('');
     try {
-      const updated = await apiRequest(`/agents/${agent.uid}/referral`, {
-        method: 'PUT', token, body: { referralId: value.trim() || null },
-      });
-      onSaved(updated);
+      onSaved(await apiRequest(`/agents/${agent.uid}/referral`, { method: 'PUT', token, body: { referralId: value.trim() || null } }));
     } catch (err) {
       setError(err.message);
-    } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Modal title={`Edit Referral ID – ${agent.name}`} onClose={onClose}>
-      <label className="afield">
-        <span className="afield__label">Referral ID</span>
-        <input className="afield__input" value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
-        <span className="afield__hint">Users enter this code when signing up to attach under this agent. Leave blank to clear.</span>
-      </label>
-      {error && <p className="amodal__error">{error}</p>}
-      <div className="amodal__actions">
-        <button className="btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn-primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
-      </div>
+    <Modal title="Referral ID" subtitle={`${agent.name} (@${agent.loginId})`} icon={LinkIcon}
+      onClose={onClose} onSubmit={save} footer={<Footer onClose={onClose} busy={busy} label="Save" busyLabel="Saving…" />}>
+      <Field label="Referral ID" hint="Members enter this code when signing up to join under this agent. Leave blank to clear.">
+        <input className="input" value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
+      </Field>
+      {error && <Alert>{error}</Alert>}
     </Modal>
   );
 }
@@ -230,31 +223,37 @@ export function ChangePasswordModal({ agent, onClose, onDone }) {
   const { token } = useAuth();
   const [pw, setPw] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [show, setShow] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
     setError('');
-    if (!pw) return setError('Enter a password.');
+    if (!pw) return setError('Enter a new password.');
     if (pw !== confirm) return setError('Passwords do not match.');
     setBusy(true);
     try {
       await apiRequest(`/agents/${agent.uid}/password`, { method: 'POST', body: { password: pw }, token });
       onDone();
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
+    } catch (err) { setError(err.message); setBusy(false); }
   };
 
   return (
-    <Modal title={`Change Password – ${agent.name}`} onClose={onClose}>
-      <label className="afield"><span className="afield__label">New Password</span>
-        <input className="afield__input" type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus /></label>
-      <label className="afield"><span className="afield__label">Confirm Password</span>
-        <input className="afield__input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></label>
-      {error && <p className="amodal__error">{error}</p>}
-      <div className="amodal__actions">
-        <button className="btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn-primary" onClick={submit} disabled={busy}>{busy ? 'Saving…' : 'Change'}</button>
-      </div>
+    <Modal title="Change password" subtitle={`${agent.name} (@${agent.loginId})`} icon={KeyIcon}
+      onClose={onClose} onSubmit={submit} footer={<Footer onClose={onClose} busy={busy} label="Change password" busyLabel="Saving…" />}>
+      <Field label="New password">
+        <div className="field__pw">
+          <input className="input" type={show ? 'text' : 'password'} autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus />
+          <button type="button" className="field__eye" onClick={() => setShow((v) => !v)} aria-label={show ? 'Hide password' : 'Show password'}>
+            {show ? <EyeOffIcon width={17} height={17} /> : <EyeIcon width={17} height={17} />}
+          </button>
+        </div>
+      </Field>
+      <Field label="Confirm password"
+        hint={confirm && pw !== confirm ? 'Passwords do not match.' : undefined} hintTone="bad">
+        <input className="input" type={show ? 'text' : 'password'} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+      </Field>
+      {error && <Alert>{error}</Alert>}
     </Modal>
   );
 }
@@ -274,15 +273,12 @@ export function ConfirmDeleteModal({ agent, onClose, onDone }) {
   };
 
   return (
-    <Modal title="Delete Agent" onClose={onClose}>
-      <p className="amodal__text">Delete <strong>{agent.name} ({agent.loginId})</strong>? This cannot be undone.</p>
-      {error && <p className="amodal__error">{error}</p>}
-      <div className="amodal__actions">
-        <button className="btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn-danger" onClick={del} disabled={busy}>{busy ? 'Deleting…' : 'Delete'}</button>
-      </div>
+    <Modal title="Delete agent" icon={TrashIcon} tone="danger" onClose={onClose} onSubmit={del}
+      footer={<Footer onClose={onClose} busy={busy} label="Delete agent" busyLabel="Deleting…" danger />}>
+      <p className="modal__text">
+        Delete <strong>{agent.name} (@{agent.loginId})</strong>? This can’t be undone.
+      </p>
+      {error && <Alert>{error}</Alert>}
     </Modal>
   );
 }
-
-export { RATES };
