@@ -7,7 +7,7 @@ import { usePaged } from '../hooks/usePaged.js';
 import { useStats } from '../context/StatsContext.jsx';
 import TreeView from '../components/TreeView.jsx';
 import { MemberCell } from '../components/LevelBadge.jsx';
-import { PageHeader, Alert, SearchInput, TableEmpty, Switch, StatusBadge, Spinner } from '../components/ui.jsx';
+import { PageHeader, Alert, SearchInput, TableEmpty, Switch, StatusBadge, Spinner, TxLinks } from '../components/ui.jsx';
 import DateRange, { inRange } from '../components/DateRange.jsx';
 import { TableFoot } from '../components/Pagination.jsx';
 import Modal from '../components/Modal.jsx';
@@ -18,13 +18,18 @@ const ACTION_TEXT = {
   accept: { title: 'Accept', past: 'Accepted', tone: undefined },
   reject: { title: 'Reject', past: 'Rejected', tone: 'danger' },
   restore: { title: 'Restore', past: 'Restored', tone: 'warn' },
+  payout: { title: 'Send payout', past: 'Sent the payout for', tone: undefined },
 };
+
+// Crypto withdrawals (on-chain payouts) carry "Crypto <COIN>/<NETWORK> to <address>" as their memo.
+const isCrypto = (t) => typeof t.memo === 'string' && t.memo.startsWith('Crypto ');
 
 // Money > Deposits / Withdrawals: review queue with accept / reject / restore.
 export default function MoneyRequests({ type }) {
   const isDeposit = type === 'deposit';
-  // Withdrawals cannot be restored, so they never reach "restored".
-  const statuses = isDeposit ? ['pending', 'finished', 'rejected', 'restored'] : ['pending', 'finished', 'rejected'];
+  // Withdrawals cannot be restored, so they never reach "restored". Crypto
+  // withdrawals are "processing" until the payout settles, or "failed" (refunded).
+  const statuses = isDeposit ? ['pending', 'finished', 'rejected', 'restored'] : ['pending', 'processing', 'finished', 'rejected', 'failed'];
   const { token } = useAuth();
   const { refresh: refreshStats } = useStats();
   const h = useHierarchy();
@@ -77,6 +82,7 @@ export default function MoneyRequests({ type }) {
     try {
       const res = await apiRequest(`/transactions/${tx.uid}/${action}`, { method: 'POST', token });
       if (res && res.success === false) setError(res.message || 'Action failed.');
+      else if (isCrypto(tx) && res?.message) setNotice(`${res.message} (${usd(tx.amount)} for @${tx.userId})`);
       else setNotice(`${ACTION_TEXT[action].past} ${isDeposit ? 'deposit' : 'withdrawal'} of ${usd(tx.amount)} for @${tx.userId}.`);
       await Promise.all([txs.refresh(), h.refresh()]);
       refreshStats();
@@ -140,13 +146,14 @@ export default function MoneyRequests({ type }) {
               <thead>
                 <tr>
                   <th>#</th><th>Member</th><th className="r">Amount</th><th className="r">Before</th><th className="r">After</th>
-                  <th>Status</th><th>Bank</th><th>Processed by</th><th>Requested</th><th className="r">Actions</th>
+                  <th>Status</th><th>{isDeposit ? 'Bank' : 'Pay to'}</th><th>Processed by</th><th>Requested</th><th className="r">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {paged.pageRows.map((t, i) => {
                   const u = h.userByLogin.get(t.userId);
                   const canRestore = isDeposit && t.status === 'finished';
+                  const canPayout = isCrypto(t) && t.status === 'processing';
                   return (
                     <tr key={t.uid}>
                       <td className="table__idx">{paged.start + i + 1}</td>
@@ -156,9 +163,12 @@ export default function MoneyRequests({ type }) {
                       <td className="r num">{t.afterAmount == null ? <span className="faint">—</span> : usd(t.afterAmount)}</td>
                       <td><StatusBadge status={t.status} /></td>
                       <td>
-                        {u?.bankName
+                        {isCrypto(t)
+                          ? <span className="member__txt" style={{ maxWidth: 260 }}><span className="member__name">{t.memo.slice(7).split(' to ')[0]}</span><span className="member__id" style={{ wordBreak: 'break-all' }}>{t.memo.slice(7).split(' to ').slice(1).join(' to ').split(' · ')[0]}</span></span>
+                          : u?.bankName
                           ? <span className="member__txt"><span className="member__name">{u.bankName}</span><span className="member__id">{[u.bankAccount, u.bankMaster].filter(Boolean).join(' · ')}</span></span>
                           : <span className="faint">—</span>}
+                        {t.txLinks?.length ? <div className="table__txtags"><TxLinks links={t.txLinks} /></div> : null}
                       </td>
                       <td>{t.managerId || <span className="faint">—</span>}</td>
                       <td className="nowrap">
@@ -181,7 +191,12 @@ export default function MoneyRequests({ type }) {
                               <RefreshIcon width={13} height={13} /> Restore
                             </button>
                           )}
-                          {t.status !== 'pending' && !canRestore && <span className="faint">—</span>}
+                          {canPayout && (
+                            <button className="btn btn--sm btn--ghost" onClick={() => setConfirm({ tx: t, action: 'payout' })} title="Send the payout again if it was never sent">
+                              <RefreshIcon width={13} height={13} /> Send payout
+                            </button>
+                          )}
+                          {t.status !== 'pending' && !canRestore && !canPayout && <span className="faint">—</span>}
                         </div>
                       </td>
                     </tr>
@@ -202,7 +217,11 @@ export default function MoneyRequests({ type }) {
         const { tx, action } = confirm;
         const a = ACTION_TEXT[action];
         const u = h.userByLogin.get(tx.userId);
-        const effect = action === 'accept'
+        const effect = action === 'payout'
+          ? 'Queues this payout on the crypto gateway. Nothing is sent twice: if the payout already went out, this only reports its status.'
+          : action === 'accept' && isCrypto(tx)
+          ? 'The amount will be deducted from the member’s balance and sent as an on-chain crypto payout. If the payout fails, the amount is returned automatically.'
+          : action === 'accept'
           ? (isDeposit ? 'The amount will be added to the member’s balance.' : 'The amount will be deducted from the member’s balance.')
           : action === 'reject' ? 'The request will be closed without changing the balance.'
           : 'The deposit will be reversed and the amount taken back from the member’s balance.';
@@ -220,6 +239,7 @@ export default function MoneyRequests({ type }) {
             <div className="callout"><span>Member</span><b style={{ fontSize: 14 }}>{u?.name ?? tx.userId} (@{tx.userId})</b></div>
             <div className="callout"><span>Amount</span><b>{usd(tx.amount)}</b></div>
             {u && <div className="callout"><span>Current balance</span><b>{usd(u.balance)}</b></div>}
+            {isCrypto(tx) && <div className="callout"><span>Pay to</span><b style={{ wordBreak: 'break-all' }}>{tx.memo.slice(7)}</b></div>}
             <p className="modal__text">{effect}</p>
           </Modal>
         );

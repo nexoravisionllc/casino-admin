@@ -148,6 +148,34 @@ export const TABLES = {
       Name        VARCHAR(64) NOT NULL,
       Show_Enable TINYINT(1)  NOT NULL DEFAULT 1
     ) ${TABLE_OPTIONS}`,
+
+  // Crypto deposits and payouts, written by the user backend (same DDL as
+  // user-backend/src/schema.js). Read here to tell crypto withdrawals apart.
+  CryptoPayments: `
+    CREATE TABLE IF NOT EXISTS CryptoPayments (
+      uid             BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      order_id        VARCHAR(64)   NOT NULL,
+      direction       VARCHAR(16)   NOT NULL,
+      userid          VARCHAR(64)   NOT NULL,
+      amount          DECIMAL(18,2) NOT NULL,
+      currency        VARCHAR(16)   NOT NULL,
+      provider        VARCHAR(32)   NOT NULL,
+      provider_uuid   VARCHAR(64)   NULL,
+      status          VARCHAR(32)   NOT NULL,
+      payment_url     VARCHAR(512)  NULL,
+      payer_amount    VARCHAR(64)   NULL,
+      payer_currency  VARCHAR(16)   NULL,
+      network         VARCHAR(32)   NULL,
+      txid            TEXT          NULL,
+      address         VARCHAR(128)  NULL,
+      transaction_uid BIGINT        NULL,
+      expires_at      DATETIME(6)   NULL,
+      created_at      DATETIME(6)   NOT NULL,
+      updated_at      DATETIME(6)   NOT NULL,
+      UNIQUE KEY UX_CryptoPayments_order_id (order_id),
+      KEY IX_CryptoPayments_userid (userid),
+      KEY IX_CryptoPayments_transaction_uid (transaction_uid)
+    ) ${TABLE_OPTIONS}`,
 };
 
 // Deposit/withdraw totals added to a Users table created without them.
@@ -191,6 +219,13 @@ export async function ensureSchema() {
     if (!present.has(column.toLowerCase()))
       await db.query(`ALTER TABLE Users ADD COLUMN ${column} DECIMAL(18,2) NOT NULL DEFAULT 0`);
   }
+
+  // txid held one hash (VARCHAR(128)); a deposit made of several transfers lists
+  // them all, comma-separated, so widen it on databases created before that.
+  const [txid] = await db.query(
+    `SELECT DATA_TYPE AS type FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'CryptoPayments' AND COLUMN_NAME = 'txid'`);
+  if (txid && txid.type.toLowerCase() === 'varchar') await db.query('ALTER TABLE CryptoPayments MODIFY txid TEXT NULL');
 
   // Seed the game-visibility rows (default: all shown) if none exist.
   const [{ n }] = await db.query('SELECT COUNT(*) AS n FROM GameSetting');

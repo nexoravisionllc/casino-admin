@@ -1,3 +1,4 @@
+import { txRefsFromMemo } from './explorer.js';
 import { dbDate, num } from './format.js';
 
 /**
@@ -61,6 +62,7 @@ export const toTransactionRow = (r) => ({
   userId: r.userid,
   managerId: r.managerid ?? null,
   memo: r.memo ?? null,
+  txLinks: txRefsFromMemo(r.memo),
   createdAt: dbDate(r.created_at),
   updatedAt: dbDate(r.updated_at),
 });

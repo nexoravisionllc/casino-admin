@@ -4,15 +4,23 @@ import { useResource } from '../hooks/useResource.js';
 import { usePaged } from '../hooks/usePaged.js';
 import TreeView from '../components/TreeView.jsx';
 import { MemberCell } from '../components/LevelBadge.jsx';
-import { PageHeader, Alert, SearchInput, TableEmpty, Switch, StatusBadge, TypeBadge } from '../components/ui.jsx';
+import { PageHeader, Alert, SearchInput, TableEmpty, Switch, StatusBadge, TypeBadge, TxLinks } from '../components/ui.jsx';
 import DateRange, { inRange, todayRange } from '../components/DateRange.jsx';
 import MultiSelect from '../components/MultiSelect.jsx';
 import { TableFoot } from '../components/Pagination.jsx';
 import { parseDate, dateTime, usd, typeLabel } from '../lib/format.js';
 import { CloseIcon } from '../components/Icons.jsx';
 
+// On-chain tx hashes are shown as linked chips, so drop them from the memo text.
+const cleanMemo = (memo) => (memo || '')
+  .replace(/\s*[/·]?\s*tx\s+0x[0-9a-fA-F]{64}/g, '')
+  .replace(/\s*0x[0-9a-fA-F]{64}/g, '')
+  .replace(/\s*[/·]\s*$/, '')
+  .replace(/\s{2,}/g, ' ')
+  .trim();
+
 const TX_TYPES = ['deposit', 'withdraw', 'payment', 'collect', 'point-convert', 'coin-deposit', 'rolling payment', 'rolling collect'];
-const TX_STATUSES = ['pending', 'finished', 'rejected', 'restored'];
+const TX_STATUSES = ['pending', 'processing', 'finished', 'rejected', 'restored', 'failed'];
 
 // Money > Transactions: every balance movement, for members and agents.
 export default function Transactions() {
@@ -106,7 +114,10 @@ export default function Transactions() {
                       <td className="r num">{t.afterAmount == null ? <span className="faint">—</span> : usd(t.afterAmount)}</td>
                       <td><StatusBadge status={t.status} /></td>
                       <td>{t.managerId || <span className="faint">—</span>}</td>
-                      <td className="table__memo">{t.memo || <span className="faint">—</span>}</td>
+                      <td className="table__memo">
+                        {cleanMemo(t.memo) || <span className="faint">—</span>}
+                        {t.txLinks?.length ? <div className="table__txtags"><TxLinks links={t.txLinks} /></div> : null}
+                      </td>
                       <td className="nowrap muted">{dateTime(t.createdAt)}</td>
                     </tr>
                   );

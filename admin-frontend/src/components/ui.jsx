@@ -36,7 +36,7 @@ export function Badge({ tone, dot, children }) {
 }
 
 const STATUS_TONES = {
-  pending: 'orange', finished: 'green', rejected: 'red', restored: 'violet',
+  pending: 'orange', finished: 'green', rejected: 'red', restored: 'violet', processing: 'blue', failed: 'red',
   active: 'green', normal: 'green', inactive: 'red', waiting: 'orange', blocked: 'red',
 };
 export function StatusBadge({ status }) {
@@ -171,3 +171,27 @@ export function Stat({ label, value, icon: Icon, tone, foot, small, hero, onClic
 }
 
 export const Spinner = () => <span className="spin" aria-hidden="true" />;
+
+const shortHash = (h) => `${h.slice(0, 6)}…${h.slice(-4)}`;
+
+// Short, clickable transaction-id tag(s) that open the block-explorer tx page.
+// Renders nothing for rows without an on-chain transaction.
+export function TxLinks({ links }) {
+  if (!links?.length) return null;
+  return (
+    <span className="txtags">
+      {links.map((l) => (
+        <a
+          key={l.hash}
+          className="txtag-link"
+          href={l.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`View ${l.hash} on the block explorer`}
+        >
+          {shortHash(l.hash)} ↗
+        </a>
+      ))}
+    </span>
+  );
+}

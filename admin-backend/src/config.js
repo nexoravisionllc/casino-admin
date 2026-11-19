@@ -63,8 +63,21 @@ export const config = {
     'http://localhost:5173', 'http://127.0.0.1:5173',
   ]),
 
-  // Shared secret for the server-to-server wallet notify hook.
+  // Shared secret for the server-to-server wallet notify hook. Also sent to the
+  // user backend to trigger crypto payouts for accepted crypto withdrawals.
   notifySecret: env.NOTIFY_SECRET ?? '',
+
+  userBackend: {
+    baseUrl: (env.USER_BACKEND_URL || 'http://localhost:5090').replace(/\/+$/, ''),
+  },
+
+  // Block-explorer lookup for on-chain transactions shown in the admin tables.
+  // Chain ids mirror the user backend's <CHAIN>_CHAIN_ID so testnet/mainnet
+  // links match; set these in admin-backend/.env to the same values.
+  onchainExplorers: {
+    BSC: int(env.BSC_CHAIN_ID, 56),
+    ETH: int(env.ETH_CHAIN_ID, 1),
+  },
 
   fortuneGate: {
     baseUrl: env.FORTUNEGATE_BASE_URL || 'https://agentapi.fortunegate.net',
