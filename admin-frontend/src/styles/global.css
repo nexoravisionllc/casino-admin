@@ -1031,3 +1031,12 @@ p { margin: 0; }
   .table-foot { justify-content: center; }
   .page-head h1 { font-size: 20px; }
 }
+
+/* Demo mode (DEV_MODE=true, agent accounts): actions are shown but disabled. */
+.demo-banner {
+  margin-bottom: 16px; padding: 10px 14px; border-radius: 10px;
+  background: var(--warn-soft); color: var(--warn); font-size: 13px; font-weight: 600;
+}
+.adj__btn:disabled, .edit-btn:disabled, .pcard__logo:disabled, .switch:disabled { opacity: .45; cursor: not-allowed; }
+.edit-btn:disabled:hover { background: none; color: inherit; }
+.pcard__logo:disabled .pcard__edit { display: none; }

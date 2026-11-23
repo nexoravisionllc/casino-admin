@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext.jsx';
 import { StatsProvider } from '../context/StatsContext.jsx';
 import Header from './Header.jsx';
 import Sidebar from './Sidebar.jsx';
@@ -13,6 +14,7 @@ export default function Layout() {
   const [rail, setRail] = useState(() => { try { return localStorage.getItem(RAIL_KEY) === '1'; } catch { return false; } });
   const [drawer, setDrawer] = useState(false);
   const { pathname } = useLocation();
+  const { readOnly } = useAuth();
 
   useEffect(() => { try { localStorage.setItem(RAIL_KEY, rail ? '1' : '0'); } catch { /* ignore */ } }, [rail]);
   useEffect(() => { setDrawer(false); window.scrollTo(0, 0); }, [pathname]);
@@ -27,6 +29,7 @@ export default function Layout() {
           <Sidebar rail={rail} onNavigate={() => setDrawer(false)} />
           <div className="layout__backdrop" onClick={() => setDrawer(false)} />
           <main className="content">
+            {readOnly && <div className="demo-banner" role="status">Demo mode: you can look around, but actions are disabled for agent accounts.</div>}
             <Outlet />
           </main>
         </div>

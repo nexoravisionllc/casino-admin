@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext.jsx';
+import { DEMO_TITLE, useAuth } from '../context/AuthContext.jsx';
 import { useStats } from '../context/StatsContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { useClickOutside } from '../hooks/useClickOutside.js';
@@ -75,7 +75,7 @@ function Counter({ to, Icon, label, count, tone }) {
 }
 
 export default function Header({ onToggleSidebar }) {
-  const { partner, logout } = useAuth();
+  const { partner, logout, readOnly } = useAuth();
   const { stats, refresh } = useStats();
   const navigate = useNavigate();
   const [rtpOpen, setRtpOpen] = useState(false);
@@ -107,7 +107,7 @@ export default function Header({ onToggleSidebar }) {
             <span className="fgate__label">RTP</span>
             <span className="fgate__rtp">{stats ? `${Number(s.fortuneRtp ?? 0)}%` : '—'}</span>
           </span>
-          <button className="icon-btn icon-btn--plain icon-btn--sm" onClick={() => setRtpOpen(true)} aria-label="Change Fortune RTP" title="Change RTP">
+          <button className="icon-btn icon-btn--plain icon-btn--sm" onClick={() => setRtpOpen(true)} aria-label="Change Fortune RTP" disabled={readOnly} title={readOnly ? DEMO_TITLE : 'Change RTP'}>
             <EditIcon width={14} height={14} />
           </button>
         </div>

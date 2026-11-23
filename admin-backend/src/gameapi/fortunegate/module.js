@@ -12,6 +12,11 @@ import { fortuneGateClient } from './client.js';
 
 const COMPANY = 'FortuneGate';
 
+// Live-casino providers (Evolution, Pragmatic Play Live). They have no game
+// rows because the player site opens their lobby directly, so they are kept
+// even when empty. Mirrors LIVE_PROVIDERS in user-frontend/src/data/liveProviders.js.
+const LIVE_PROVIDER_IDS = [6, 8];
+
 async function syncProviders() {
   const providers = await fortuneGateClient.getProviders();
 
@@ -106,6 +111,21 @@ async function syncGames() {
   }
 
   log.info(`FortuneGate games sync complete: ${inserted} inserted, ${updated} updated.`);
+  await pruneEmptyProviders();
+}
+
+/**
+ * Remove providers that have no games (except the live-casino ones), so the
+ * player site and admin panel only list providers that can actually be played.
+ * Runs after every game sync because syncProviders re-adds them.
+ */
+async function pruneEmptyProviders() {
+  const { affectedRows } = await db.query(
+    `DELETE FROM Providers
+     WHERE company = :company AND provider_id NOT IN (:keep)
+       AND NOT EXISTS (SELECT 1 FROM Games g WHERE g.company = Providers.company AND g.providerid = Providers.provider_id)`,
+    { company: COMPANY, keep: LIVE_PROVIDER_IDS });
+  if (affectedRows) log.info(`FortuneGate: removed ${affectedRows} providers with no games.`);
 }
 
 export const fortuneGateModule = { company: COMPANY, syncProviders, syncGames };

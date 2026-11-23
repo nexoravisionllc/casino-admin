@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { DEMO_TITLE, useAuth } from '../context/AuthContext.jsx';
 import { useHierarchy } from '../hooks/useHierarchy.js';
 import { usePaged } from '../hooks/usePaged.js';
 import TreeView from '../components/TreeView.jsx';
@@ -22,6 +23,7 @@ export default function Members() {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [modal, setModal] = useState(null);
+  const { readOnly } = useAuth();
 
   const scope = useMemo(() => h.scopeLogins(selectedId), [h.scopeLogins, selectedId]);
   const q = search.trim().toLowerCase();
@@ -45,7 +47,7 @@ export default function Members() {
         crumb="Members" title="Members"
         subtitle={`${int(filtered.length)} members · $${money(totals.bal)} balance · ${money(totals.pt)} P`}
         actions={selectedAgent && (
-          <button className="btn btn--primary" onClick={() => setModal({ type: 'create', parent: selectedAgent })}>
+          <button className="btn btn--primary" onClick={() => setModal({ type: 'create', parent: selectedAgent })} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}>
             <UserPlusIcon width={16} height={16} /> Add member under {selectedAgent.name}
           </button>
         )}
@@ -107,7 +109,7 @@ export default function Members() {
                         <div className="adj" style={{ justifyContent: 'flex-end' }}>
                           {ACTIONS.map((a) => (
                             <button
-                              key={`${a.field}-${a.mode}`} title={a.title} aria-label={`${a.title} for ${u.loginId}`}
+                              key={`${a.field}-${a.mode}`} title={readOnly ? DEMO_TITLE : a.title} disabled={readOnly} aria-label={`${a.title} for ${u.loginId}`}
                               className={`adj__btn adj__btn--${a.mode}`}
                               onClick={() => setModal({ type: 'adjust', user: u, field: a.field, mode: a.mode })}
                             >

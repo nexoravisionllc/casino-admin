@@ -14,6 +14,7 @@ import PointLog from './pages/PointLog.jsx';
 import Providers from './pages/Providers.jsx';
 import Games from './pages/Games.jsx';
 import Settings from './pages/Settings.jsx';
+import Wallet from './pages/Wallet.jsx';
 
 function RequireAuth({ children }) {
   const { partner } = useAuth();
@@ -45,6 +46,7 @@ export default function App() {
         <Route path="money/withdraw" element={<MoneyRequests key="withdraw" type="withdraw" />} />
         <Route path="money/transaction" element={<Transactions />} />
         <Route path="money/point-log" element={<PointLog />} />
+        <Route path="money/wallet" element={<Wallet />} />
 
         <Route path="games" element={<Navigate to="/games/providers" replace />} />
         <Route path="games/providers" element={<Providers />} />

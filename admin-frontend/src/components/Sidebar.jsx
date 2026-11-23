@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { useStats } from '../context/StatsContext.jsx';
 import { NAV } from './nav.js';
@@ -8,6 +9,8 @@ import { MoonIcon, SunIcon } from './Icons.jsx';
 export default function Sidebar({ rail, onNavigate }) {
   const { theme, setTheme } = useTheme();
   const { stats } = useStats();
+  const { partner } = useAuth();
+  const isTopAdmin = Number(partner?.role) === 1;
 
   return (
     <aside className={`sidebar ${rail ? 'sidebar--rail' : ''}`} aria-label="Main navigation">
@@ -16,7 +19,7 @@ export default function Sidebar({ rail, onNavigate }) {
           <div key={section}>
             <p className="sidebar__section">{section}</p>
             <ul className="snav">
-              {items.map(({ to, label, Icon, end, count, tone }) => {
+              {items.filter((item) => !item.adminOnly || isTopAdmin).map(({ to, label, Icon, end, count, tone }) => {
                 const n = count ? Number(stats?.[count] ?? 0) : 0;
                 return (
                   <li key={to}>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext.jsx';
+import { DEMO_TITLE, useAuth } from '../context/AuthContext.jsx';
 import { useHierarchy } from '../hooks/useHierarchy.js';
 import { usePaged } from '../hooks/usePaged.js';
 import { LevelBadge, LevelChain, MemberCell, levelLetter } from '../components/LevelBadge.jsx';
@@ -20,7 +20,7 @@ const RATE_COLS = [
 ];
 
 export default function AgentList() {
-  const { partner } = useAuth();
+  const { partner, readOnly } = useAuth();
   const navigate = useNavigate();
   const h = useHierarchy();
   const [excluded, setExcluded] = useState(() => new Set());
@@ -95,7 +95,7 @@ export default function AgentList() {
                             <span className="rate-line" key={key}>
                               <span className="rate-line__k">{label}</span>
                               <b>{Number(a[key] ?? 0).toFixed(1)}%</b>
-                              <button className="edit-btn" onClick={() => setModal({ type: 'rate', agent: a, rateKey: key })} aria-label={`Edit ${label} rate`} title="Edit">
+                              <button className="edit-btn" onClick={() => setModal({ type: 'rate', agent: a, rateKey: key })} aria-label={`Edit ${label} rate`} disabled={readOnly} title={readOnly ? DEMO_TITLE : 'Edit'}>
                                 <EditIcon width={12} height={12} />
                               </button>
                             </span>
@@ -107,14 +107,14 @@ export default function AgentList() {
                     <td className="nowrap muted">{dateTime(a.createdAt)}</td>
                     <td>
                       <div className="row-actions" style={{ justifyContent: 'flex-end' }}>
-                        <button className="icon-btn icon-btn--sm" title="Create sub" aria-label="Create sub" onClick={() => setModal({ type: 'createsub', agent: a })}>
+                        <button className="icon-btn icon-btn--sm" title={readOnly ? DEMO_TITLE : 'Create sub'} disabled={readOnly} aria-label="Create sub" onClick={() => setModal({ type: 'createsub', agent: a })}>
                           <UserPlusIcon width={15} height={15} />
                         </button>
-                        <button className="icon-btn icon-btn--sm" title="Change password" aria-label="Change password" onClick={() => setModal({ type: 'password', agent: a })}>
+                        <button className="icon-btn icon-btn--sm" title={readOnly ? DEMO_TITLE : 'Change password'} disabled={readOnly} aria-label="Change password" onClick={() => setModal({ type: 'password', agent: a })}>
                           <KeyIcon width={15} height={15} />
                         </button>
                         {a.uid !== partner?.uid && (
-                          <button className="icon-btn icon-btn--sm icon-btn--danger" title="Delete" aria-label="Delete" onClick={() => setModal({ type: 'delete', agent: a })}>
+                          <button className="icon-btn icon-btn--sm icon-btn--danger" title={readOnly ? DEMO_TITLE : 'Delete'} disabled={readOnly} aria-label="Delete" onClick={() => setModal({ type: 'delete', agent: a })}>
                             <TrashIcon width={15} height={15} />
                           </button>
                         )}

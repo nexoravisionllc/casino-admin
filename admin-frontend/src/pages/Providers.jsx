@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useAuth } from '../context/AuthContext.jsx';
+import { DEMO_TITLE, useAuth } from '../context/AuthContext.jsx';
 import { apiRequest, BASE } from '../api/client.js';
 import { useResource } from '../hooks/useResource.js';
 import { PageHeader, Alert, SearchInput, Badge, Empty, Field, Spinner } from '../components/ui.jsx';
@@ -9,6 +9,7 @@ import { ImageIcon, ProvidersIcon } from '../components/Icons.jsx';
 const initials = (name) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 
 export default function Providers() {
+  const { readOnly } = useAuth();
   const res = useResource('/providers', { initial: [] });
   const rows = res.data ?? [];
   const [company, setCompany] = useState('All');
@@ -61,7 +62,7 @@ export default function Providers() {
           <div className="pgrid">
             {filtered.map((p) => (
               <div className="pcard" key={p.uid}>
-                <button className="pcard__logo" onClick={() => setEditing(p)} aria-label={`Change image for ${p.name}`}>
+                <button className="pcard__logo" onClick={() => setEditing(p)} aria-label={`Change image for ${p.name}`} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}>
                   {p.imageUrl ? <img src={p.imageUrl} alt="" loading="lazy" /> : <span className="pcard__mono">{initials(p.name)}</span>}
                   <span className="pcard__edit"><span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><ImageIcon width={15} height={15} /> Change image</span></span>
                 </button>

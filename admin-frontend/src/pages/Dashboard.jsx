@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext.jsx';
+import { DEMO_TITLE, useAuth } from '../context/AuthContext.jsx';
 import { useRealtime } from '../context/RealtimeContext.jsx';
 import { apiRequest } from '../api/client.js';
 import { useStats } from '../context/StatsContext.jsx';
@@ -26,7 +26,7 @@ const FLOW = {
 };
 
 export default function Dashboard() {
-  const { token, partner } = useAuth();
+  const { token, partner, readOnly } = useAuth();
   const { tick } = useRealtime();
   const { stats } = useStats();
   const navigate = useNavigate();
@@ -74,7 +74,7 @@ export default function Dashboard() {
           hero label="Fortune Gate balance" icon={GateIcon} tone="gold"
           value={stats || data ? usd(h.fortuneGate) : '—'}
           foot={<>RTP <b>{Number(h.fortuneRtp ?? 0)}%</b>
-            <button className="btn btn--sm btn--ghost stat__edit" onClick={() => setRtpOpen(true)}><EditIcon width={12} height={12} /> Change</button></>}
+            <button className="btn btn--sm btn--ghost stat__edit" onClick={() => setRtpOpen(true)} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}><EditIcon width={12} height={12} /> Change</button></>}
         />
         <Stat
           label="Member balance" icon={DollarIcon} tone="green"

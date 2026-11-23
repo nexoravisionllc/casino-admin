@@ -6,6 +6,7 @@ import { ValidationError, problem, validationProblem } from './lib/http.js';
 import { WALLET_HUB_PATH, walletHub } from './realtime/wallet.js';
 import { router as agents } from './routes/agents.js';
 import { router as auth } from './routes/auth.js';
+import { router as cryptoWallet } from './routes/cryptoWallet.js';
 import { router as dashboard } from './routes/dashboard.js';
 import { router as fortuneGate } from './routes/fortuneGate.js';
 import { router as gameHistory } from './routes/gameHistory.js';
@@ -35,6 +36,7 @@ export function createApp() {
 
   app.use('/api/auth', auth);
   app.use('/api/agents', agents);
+  app.use('/api/crypto-wallet', cryptoWallet);
   app.use('/api/dashboard', dashboard);
   app.use('/api/fortunegate', fortuneGate);
   app.use('/api/game-history', gameHistory);

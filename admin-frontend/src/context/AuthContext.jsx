@@ -39,13 +39,23 @@ export function AuthProvider({ children }) {
 
   const logout = () => setAuth(null);
 
+  // DEV_MODE on the admin backend: agents (role > 1) get a read-only panel.
+  const [devMode, setDevMode] = useState(false);
+  useEffect(() => {
+    apiRequest('/auth/mode').then((d) => setDevMode(Boolean(d?.devMode))).catch(() => {});
+  }, []);
+  const readOnly = devMode && Boolean(auth?.partner) && Number(auth.partner.role) !== 1;
+
   const value = useMemo(
-    () => ({ partner: auth?.partner ?? null, token: auth?.token ?? null, login, logout }),
-    [auth]
+    () => ({ partner: auth?.partner ?? null, token: auth?.token ?? null, readOnly, login, logout }),
+    [auth, readOnly]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
+
+/** Tooltip on actions that demo mode disables. */
+export const DEMO_TITLE = 'Disabled in demo mode';
 
 export function useAuth() {
   const ctx = useContext(AuthContext);

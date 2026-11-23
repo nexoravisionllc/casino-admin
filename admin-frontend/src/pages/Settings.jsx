@@ -13,7 +13,7 @@ const DESCRIPTIONS = {
 
 // System > Settings: player-site game visibility (backed by /api/gamesetting).
 export default function Settings() {
-  const { token } = useAuth();
+  const { token, readOnly } = useAuth();
   const res = useResource('/gamesetting', { initial: [] });
   const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
@@ -52,7 +52,7 @@ export default function Settings() {
                   <div className="setting-row__desc">{DESCRIPTIONS[r.name.toLowerCase()] ?? `${r.name} on the player site.`}</div>
                 </div>
               </div>
-              <Switch checked={!!r.showEnable} onChange={(next) => toggle(r, next)} />
+              <Switch checked={!!r.showEnable} onChange={(next) => toggle(r, next)} disabled={readOnly} />
             </div>
           )) : (
             <Empty title={res.loading ? 'Loading…' : 'No settings'} />

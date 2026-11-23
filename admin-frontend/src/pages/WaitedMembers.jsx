@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useAuth } from '../context/AuthContext.jsx';
+import { DEMO_TITLE, useAuth } from '../context/AuthContext.jsx';
 import { apiRequest } from '../api/client.js';
 import { useHierarchy } from '../hooks/useHierarchy.js';
 import { usePaged } from '../hooks/usePaged.js';
@@ -13,7 +13,7 @@ import { CheckIcon } from '../components/Icons.jsx';
 // Members whose sign-up is not yet approved (Status != Active). Approving makes
 // them Active: they leave this list and the header count drops.
 export default function WaitedMembers() {
-  const { token } = useAuth();
+  const { token, readOnly } = useAuth();
   const { refresh: refreshStats } = useStats();
   const h = useHierarchy();
   const [search, setSearch] = useState('');
@@ -84,7 +84,7 @@ export default function WaitedMembers() {
                     <td>{u.bankMaster || dash}</td>
                     <td className="nowrap"><span title={dateTime(u.createdAt)}>{timeAgo(u.createdAt)}</span></td>
                     <td className="r">
-                      <button className="btn btn--sm btn--primary" disabled={busyId === u.uid} onClick={() => approve(u)}>
+                      <button className="btn btn--sm btn--primary" disabled={readOnly || busyId === u.uid} title={readOnly ? DEMO_TITLE : undefined} onClick={() => approve(u)}>
                         {busyId === u.uid ? <Spinner /> : <CheckIcon width={14} height={14} />} Approve
                       </button>
                     </td>

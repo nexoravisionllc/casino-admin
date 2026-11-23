@@ -29,6 +29,9 @@ const trustProxy = (v) => {
 };
 
 export const config = {
+  // Demo/showcase mode (DEV_MODE=true). See the DEV_MODE note in .env.example.
+  devMode: env.DEV_MODE === 'true',
+
   root,
   host: env.HOST || 'localhost',
   port: int(env.PORT, 5100),

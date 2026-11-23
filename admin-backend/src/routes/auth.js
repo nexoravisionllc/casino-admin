@@ -1,4 +1,5 @@
 import express from 'express';
+import { config } from '../config.js';
 import { db } from '../db.js';
 import { createToken } from '../lib/auth.js';
 import { num } from '../lib/format.js';
@@ -6,6 +7,9 @@ import { bodyOf, isBlank } from '../lib/http.js';
 import { verifyPassword } from '../lib/password.js';
 
 export const router = express.Router();
+
+/** Public: whether demo mode (DEV_MODE) is on, so the panel can grey out agent actions. */
+router.get('/mode', (req, res) => res.json({ devMode: config.devMode }));
 
 /** Authenticate an admin or agent with login id and password. */
 router.post('/login', async (req, res) => {

@@ -34,12 +34,18 @@ export function requireAuth(req, res, next) {
     // ASP.NET's default 5-minute clock skew.
     req.user = jwt.verify(match[1], key, { algorithms: ['HS256'], issuer, audience, clockTolerance: 300 });
     if (req.user.exp == null) throw new Error('Token has no expiration.');
-    next();
   } catch {
     res.set('WWW-Authenticate', 'Bearer error="invalid_token"');
-    res.status(401).end();
+    return res.status(401).end();
   }
+  // Demo mode: agents (anyone but the top admin) can look but not change anything.
+  if (isReadOnly(req.user) && !['GET', 'HEAD', 'OPTIONS'].includes(req.method))
+    return res.status(403).json({ message: 'This is a demo: actions are disabled for agent accounts.' });
+  next();
 }
+
+/** True when DEV_MODE is on and the token belongs to an agent rather than the top admin (role 1). */
+export const isReadOnly = (user) => config.devMode && String(user?.role) !== '1';
 
 /** Uid of the signed-in partner (the token's "sub"), or 0. */
 export function currentPartnerId(req) {

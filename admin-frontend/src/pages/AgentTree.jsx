@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useAuth } from '../context/AuthContext.jsx';
+import { DEMO_TITLE, useAuth } from '../context/AuthContext.jsx';
 import { useHierarchy } from '../hooks/useHierarchy.js';
 import TreeView, { agentsOnly } from '../components/TreeView.jsx';
 import { LevelBadge, UserBadge, levelLetter } from '../components/LevelBadge.jsx';
@@ -83,6 +83,7 @@ export default function AgentTree() {
 }
 
 export function AgentProfile({ agent, h, isSelf, onSelect, onModal }) {
+  const { readOnly } = useAuth();
   const isAdmin = agent.role === 1;
   const parent = h.agentById.get(agent.partnerId);
   const childAgents = h.agents.filter((a) => a.partnerId === agent.uid);
@@ -108,10 +109,10 @@ export function AgentProfile({ agent, h, isSelf, onSelect, onModal }) {
           </div>
         </div>
         <div className="profile__actions">
-          <button className="btn btn--primary" onClick={() => onModal('createsub')}><UserPlusIcon width={16} height={16} /> Create sub</button>
-          <button className="btn btn--ghost" onClick={() => onModal('password')}><KeyIcon width={16} height={16} /> Password</button>
+          <button className="btn btn--primary" onClick={() => onModal('createsub')} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}><UserPlusIcon width={16} height={16} /> Create sub</button>
+          <button className="btn btn--ghost" onClick={() => onModal('password')} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}><KeyIcon width={16} height={16} /> Password</button>
           {!isSelf && (
-            <button className="btn btn--danger-ghost" onClick={() => onModal('delete')}><TrashIcon width={16} height={16} /> Delete</button>
+            <button className="btn btn--danger-ghost" onClick={() => onModal('delete')} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}><TrashIcon width={16} height={16} /> Delete</button>
           )}
         </div>
       </section>
@@ -135,7 +136,7 @@ export function AgentProfile({ agent, h, isSelf, onSelect, onModal }) {
                   <div className="rate__value">{Number(agent[k] ?? 0).toFixed(1)}%</div>
                   <div className="rate__bar"><i style={{ width: `${Math.min(100, (Number(agent[k] ?? 0) / maxOf(k)) * 100)}%` }} /></div>
                 </div>
-                <button className="icon-btn icon-btn--sm" onClick={() => onModal('rate', { rateKey: k })} aria-label={`Edit ${RATE_LABELS[k]}`} title="Edit">
+                <button className="icon-btn icon-btn--sm" onClick={() => onModal('rate', { rateKey: k })} aria-label={`Edit ${RATE_LABELS[k]}`} disabled={readOnly} title={readOnly ? DEMO_TITLE : 'Edit'}>
                   <EditIcon width={14} height={14} />
                 </button>
               </div>
@@ -161,7 +162,7 @@ export function AgentProfile({ agent, h, isSelf, onSelect, onModal }) {
             <span className="kv__k">Referral ID</span>
             <span className="kv__v">
               <span>{agent.referralId || <span className="faint">Not set</span>}</span>
-              <button className="edit-btn" onClick={() => onModal('referral')} aria-label="Edit referral ID" title="Edit"><EditIcon width={13} height={13} /></button>
+              <button className="edit-btn" onClick={() => onModal('referral')} aria-label="Edit referral ID" disabled={readOnly} title={readOnly ? DEMO_TITLE : 'Edit'}><EditIcon width={13} height={13} /></button>
             </span>
           </div>
           <div className="kv__row"><span className="kv__k">Created</span><span className="kv__v"><span>{dateTime(agent.createdAt)}</span></span></div>

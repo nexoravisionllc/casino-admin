@@ -1,9 +1,10 @@
 import {
   DashboardIcon, NetworkIcon, ListIcon, UsersIcon, UserClockIcon, HistoryIcon,
-  DepositIcon, WithdrawIcon, ReceiptIcon, CoinsIcon, ProvidersIcon, GamepadIcon, SettingsIcon,
+  DepositIcon, WithdrawIcon, ReceiptIcon, CoinsIcon, ProvidersIcon, GamepadIcon, SettingsIcon, WalletIcon,
 } from './Icons.jsx';
 
-// Sidebar structure. `count` names a header-stats field shown as a badge.
+// Sidebar structure. `count` names a header-stats field shown as a badge;
+// `adminOnly` items are shown to the top admin (role 1) only.
 export const NAV = [
   {
     section: 'Overview',
@@ -31,6 +32,7 @@ export const NAV = [
       { to: '/money/withdraw', label: 'Withdrawals', Icon: WithdrawIcon, count: 'withdraw', tone: 'warn' },
       { to: '/money/transaction', label: 'Transactions', Icon: ReceiptIcon },
       { to: '/money/point-log', label: 'Point Log', Icon: CoinsIcon },
+      { to: '/money/wallet', label: 'Crypto Wallet', Icon: WalletIcon, adminOnly: true },
     ],
   },
   {

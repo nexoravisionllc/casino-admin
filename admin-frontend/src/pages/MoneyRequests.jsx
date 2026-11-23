@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useAuth } from '../context/AuthContext.jsx';
+import { DEMO_TITLE, useAuth } from '../context/AuthContext.jsx';
 import { apiRequest } from '../api/client.js';
 import { useHierarchy } from '../hooks/useHierarchy.js';
 import { useResource } from '../hooks/useResource.js';
@@ -30,7 +30,7 @@ export default function MoneyRequests({ type }) {
   // Withdrawals cannot be restored, so they never reach "restored". Crypto
   // withdrawals are "processing" until the payout settles, or "failed" (refunded).
   const statuses = isDeposit ? ['pending', 'finished', 'rejected', 'restored'] : ['pending', 'processing', 'finished', 'rejected', 'failed'];
-  const { token } = useAuth();
+  const { token, readOnly } = useAuth();
   const { refresh: refreshStats } = useStats();
   const h = useHierarchy();
   const txs = useResource('/transactions', { realtime: true, initial: [] });
@@ -178,21 +178,21 @@ export default function MoneyRequests({ type }) {
                         <div className="row-actions" style={{ justifyContent: 'flex-end' }}>
                           {t.status === 'pending' && (
                             <>
-                              <button className="btn btn--sm btn--primary" onClick={() => setConfirm({ tx: t, action: 'accept' })}>
+                              <button className="btn btn--sm btn--primary" onClick={() => setConfirm({ tx: t, action: 'accept' })} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}>
                                 <CheckIcon width={13} height={13} /> Accept
                               </button>
-                              <button className="btn btn--sm btn--danger-ghost" onClick={() => setConfirm({ tx: t, action: 'reject' })}>
+                              <button className="btn btn--sm btn--danger-ghost" onClick={() => setConfirm({ tx: t, action: 'reject' })} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}>
                                 <CloseIcon width={13} height={13} /> Reject
                               </button>
                             </>
                           )}
                           {canRestore && (
-                            <button className="btn btn--sm btn--warn-soft" onClick={() => setConfirm({ tx: t, action: 'restore' })}>
+                            <button className="btn btn--sm btn--warn-soft" onClick={() => setConfirm({ tx: t, action: 'restore' })} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}>
                               <RefreshIcon width={13} height={13} /> Restore
                             </button>
                           )}
                           {canPayout && (
-                            <button className="btn btn--sm btn--ghost" onClick={() => setConfirm({ tx: t, action: 'payout' })} title="Send the payout again if it was never sent">
+                            <button className="btn btn--sm btn--ghost" onClick={() => setConfirm({ tx: t, action: 'payout' })} disabled={readOnly} title={readOnly ? DEMO_TITLE : 'Send the payout again if it was never sent'}>
                               <RefreshIcon width={13} height={13} /> Send payout
                             </button>
                           )}
