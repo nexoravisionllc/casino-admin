@@ -210,8 +210,11 @@ Each request shows the member, amount, balance at the time of the request, depos
 
 | Action | When to use | Effect |
 |---|---|---|
-| **Accept** | You've **sent** the money to the member's bank | Subtracts the amount from the balance, status **finished** |
-| **Reject** | You won't pay it | No balance change, status **rejected** |
+| **Details** | Before paying | Shows the member, email, balance, history, and where to pay (wallet address and network with a Copy button, or bank details) |
+| **Accept** | You've **sent** the money yourself (crypto from your wallet, or bank transfer) | Subtracts the amount from the balance, status **finished**. Optionally enter the payment reference (tx hash / transfer ID). The member is emailed. |
+| **Reject** | You won't pay it | Requires a reason. No balance change, status **rejected**. The member sees the reason and is emailed. |
+
+Nothing is sent automatically: crypto withdrawals are paid by hand to the address shown in **Details**. Check the network before sending.
 
 The balance is **not** reserved when the player requests a withdrawal. If the player has since lost the money in games, **Accept** fails with *User has insufficient balance for this withdrawal.* In that case, **Reject** the request.
 

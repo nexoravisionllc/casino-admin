@@ -82,6 +82,29 @@ export const config = {
     ETH: int(env.ETH_CHAIN_ID, 1),
   },
 
+  // Outgoing email (withdrawal accepted / rejected notices). Email is skipped,
+  // with a log line, while SMTP_HOST is blank.
+  mail: {
+    host: env.SMTP_HOST || '',
+    port: int(env.SMTP_PORT, 587),
+    // true / ssl for port 465 (implicit TLS); false / tls / starttls uses
+    // STARTTLS when offered. Defaults by port.
+    secure: env.SMTP_SECURE
+      ? ['true', 'ssl'].includes(env.SMTP_SECURE.toLowerCase())
+      : int(env.SMTP_PORT, 587) === 465,
+    user: env.SMTP_USER || '',
+    password: env.SMTP_PASSWORD ?? env.SMTP_PASS ?? '',
+    // MAIL_FROM ("Name <address>"), or SMTP_FROM plus an optional SMTP_FROM_NAME.
+    from: env.MAIL_FROM
+      || (env.SMTP_FROM && env.SMTP_FROM_NAME ? `"${env.SMTP_FROM_NAME.replaceAll('"', '')}" <${env.SMTP_FROM}>` : env.SMTP_FROM)
+      || env.SMTP_USER || '',
+    siteName: env.SITE_NAME || 'Live Casino',
+    // Optional link to the player site, included in the emails.
+    siteUrl: (env.SITE_URL || '').replace(/\/+$/, ''),
+    // Optional support address: the emails' Reply-To and shown in their footer.
+    supportEmail: env.SUPPORT_EMAIL || '',
+  },
+
   fortuneGate: {
     baseUrl: env.FORTUNEGATE_BASE_URL || 'https://agentapi.fortunegate.net',
     token: env.FORTUNEGATE_TOKEN || '',

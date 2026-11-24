@@ -7,6 +7,7 @@ import { config } from '../config.js';
 import { db } from '../db.js';
 import { requireAuth } from '../lib/auth.js';
 import { bodyOf, isBlank, longParam } from '../lib/http.js';
+import { rememberProviderImage } from '../lib/providerImages.js';
 import { PROVIDER_COLUMNS, toProviderRow } from '../lib/rows.js';
 
 export const router = express.Router();
@@ -22,8 +23,12 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX
 const getProvider = async (uid) =>
   (await db.query(`SELECT ${PROVIDER_COLUMNS} FROM Providers WHERE uid = :uid`, { uid }))[0];
 
-const setImageUrl = (uid, imageUrl) =>
-  db.query('UPDATE Providers SET image_url = :imageUrl WHERE uid = :uid', { imageUrl, uid });
+// Also remembered per (company, provider_id), so the image survives the sync
+// deleting and re-adding the provider.
+const setImageUrl = (provider, imageUrl) => db.transaction(async ({ query }) => {
+  await query('UPDATE Providers SET image_url = :imageUrl WHERE uid = :uid', { imageUrl, uid: provider.uid });
+  await rememberProviderImage(query, provider.company, provider.provider_id, imageUrl);
+});
 
 /** All providers. */
 router.get('/', async (req, res) => {
@@ -39,7 +44,7 @@ router.put('/:uid/image', async (req, res) => {
   const provider = await getProvider(req.params.uid);
   if (!provider) return res.status(404).json({ message: 'Provider not found.' });
 
-  await setImageUrl(req.params.uid, imageUrl);
+  await setImageUrl(provider, imageUrl);
   res.json(toProviderRow({ ...provider, image_url: imageUrl }));
 });
 
@@ -68,6 +73,6 @@ router.post(
     // Public URL served from wwwroot (see the static middleware in app.js).
     const base = config.publicBaseUrl ?? `${req.protocol}://${req.host}`;
     const url = `${base}/uploads/providers/${fileName}`;
-    await setImageUrl(req.params.uid, url);
+    await setImageUrl(provider, url);
     res.json(toProviderRow({ ...provider, image_url: url }));
   });

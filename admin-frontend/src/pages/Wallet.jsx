@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useResource } from '../hooks/useResource.js';
 import { PageHeader, Alert, Badge, Card, Empty, Stat } from '../components/ui.jsx';
-import { RefreshIcon, WalletIcon, ShieldIcon, WithdrawIcon, CheckIcon, LinkIcon } from '../components/Icons.jsx';
+import { RefreshIcon, WalletIcon, ShieldIcon, CheckIcon, LinkIcon } from '../components/Icons.jsx';
 import { usd, dateTime, timeAgo } from '../lib/format.js';
 
 const KIND_TONES = { payout: 'orange', sweep: 'green', gas: 'blue' };
@@ -53,8 +53,6 @@ function ChainCard({ c }) {
   const find = (w, s) => w?.balances.find((b) => b.symbol === s);
   const hotNative = find(hot, c.native);
   const noGas = hotNative && Number(hotNative.amount) === 0;
-  const hotStable = hot.balances.filter((b) => !b.native).reduce((sum, b) => sum + Number(b.usd ?? 0), 0);
-  const shortfall = Number(c.queuedPayouts.usd) > hotStable;
 
   return (
     <Card
@@ -62,12 +60,9 @@ function ChainCard({ c }) {
       subtitle={`Chain ${c.chainId} · ${c.confirmations} confirmations${c.nativeUsdPrice != null ? ` · 1 ${c.native} = ${usd(c.nativeUsdPrice)}` : ''}`}
       bodyClass="card__body--flush"
     >
-      {(noGas || (c.queuedPayouts.count > 0 && shortfall)) && (
+      {noGas && (
         <div style={{ padding: '12px 18px 0' }}>
-          {noGas && <Alert>The hot wallet has no {c.native} on {c.key}, so it cannot pay gas. Withdrawals and sweeps wait until you send it some {c.native}.</Alert>}
-          {c.queuedPayouts.count > 0 && shortfall && (
-            <Alert>Queued payouts ({usd(c.queuedPayouts.usd)}) may exceed the hot wallet's stablecoins ({usd(hotStable)}). Top it up from the treasury.</Alert>
-          )}
+          {noGas && <Alert>The hot wallet has no {c.native} on {c.key}, so it cannot pay gas. Sweeps wait until you send it some {c.native}.</Alert>}
         </div>
       )}
       <div className="table-wrap">
@@ -105,11 +100,6 @@ function ChainCard({ c }) {
           </tbody>
         </table>
       </div>
-      <div className="card__body" style={{ borderTop: '1px solid var(--border)' }}>
-        <span className="muted">Payouts waiting to be sent on {c.key}: </span>
-        <strong className="num">{c.queuedPayouts.count}</strong>
-        {c.queuedPayouts.count > 0 && <span className="num muted"> · {usd(c.queuedPayouts.usd)}</span>}
-      </div>
     </Card>
   );
 }
@@ -139,13 +129,11 @@ export default function Wallet() {
           {d.treasuryIsHot && (
             <Alert>ONCHAIN_SWEEP_TO is not set, so player deposits are swept into the hot wallet. Set it in user-backend/.env to a separate wallet you control (ideally a hardware wallet) to keep most funds out of the server's reach.</Alert>
           )}
-          {!d.worker && <Alert>The on-chain worker is off in this user backend (ONCHAIN_WORKER=false). Deposits, payouts and sweeps only run in the instance where it is on.</Alert>}
+          {!d.worker && <Alert>The on-chain worker is off in this user backend (ONCHAIN_WORKER=false). Deposits and sweeps only run in the instance where it is on.</Alert>}
 
-          <div className={`stats ${d.treasuryIsHot ? 'stats--3' : ''}`} style={{ marginBottom: 16 }}>
-            <Stat label="Hot wallet (USD value)" value={usd(totalUsd('hot'))} icon={WalletIcon} tone="gold" foot="Pays withdrawals and gas" />
+          <div className={`stats ${d.treasuryIsHot ? 'stats--2' : 'stats--3'}`} style={{ marginBottom: 16 }}>
+            <Stat label="Hot wallet (USD value)" value={usd(totalUsd('hot'))} icon={WalletIcon} tone="gold" foot="Pays sweep gas (withdrawals are paid by hand)" />
             {!d.treasuryIsHot && <Stat label="Treasury (USD value)" value={usd(totalUsd('treasury'))} icon={ShieldIcon} tone="green" foot="Receives swept deposits" />}
-            <Stat label="Payouts waiting" value={(d.chains ?? []).reduce((n, c) => n + (c.queuedPayouts?.count ?? 0), 0)} icon={WithdrawIcon} tone="orange"
-              foot={usd((d.chains ?? []).reduce((n, c) => n + Number(c.queuedPayouts?.usd ?? 0), 0))} />
             <Stat label="Networks" value={(d.chains ?? []).map((c) => c.key).join(' · ') || '—'} small foot={`${(d.chains ?? []).filter((c) => c.error).length} unreachable`} />
           </div>
 

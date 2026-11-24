@@ -50,7 +50,7 @@ export const toUserRow = (u, createdAt = dbDate(u.CreatedAt)) => ({
 });
 
 export const TRANSACTION_COLUMNS =
-  'uid, type, amount, beforeamount, afteramount, status, userid, managerid, memo, created_at, updated_at';
+  'uid, type, amount, beforeamount, afteramount, status, userid, managerid, memo, reject_reason, created_at, updated_at';
 
 export const toTransactionRow = (r) => ({
   uid: num(r.uid),
@@ -62,6 +62,7 @@ export const toTransactionRow = (r) => ({
   userId: r.userid,
   managerId: r.managerid ?? null,
   memo: r.memo ?? null,
+  rejectReason: r.reject_reason ?? null,
   txLinks: txRefsFromMemo(r.memo),
   createdAt: dbDate(r.created_at),
   updatedAt: dbDate(r.updated_at),

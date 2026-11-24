@@ -7,29 +7,59 @@ import { usePaged } from '../hooks/usePaged.js';
 import { useStats } from '../context/StatsContext.jsx';
 import TreeView from '../components/TreeView.jsx';
 import { MemberCell } from '../components/LevelBadge.jsx';
-import { PageHeader, Alert, SearchInput, TableEmpty, Switch, StatusBadge, Spinner, TxLinks } from '../components/ui.jsx';
+import { PageHeader, Alert, SearchInput, TableEmpty, Switch, StatusBadge, Spinner, TxLinks, Field } from '../components/ui.jsx';
 import DateRange, { inRange } from '../components/DateRange.jsx';
 import { TableFoot } from '../components/Pagination.jsx';
 import Modal from '../components/Modal.jsx';
 import { parseDate, dateTime, timeAgo, usd } from '../lib/format.js';
-import { CheckIcon, CloseIcon, RefreshIcon, DepositIcon, WithdrawIcon } from '../components/Icons.jsx';
+import { CheckIcon, CloseIcon, RefreshIcon, DepositIcon, WithdrawIcon, EyeIcon } from '../components/Icons.jsx';
 
 const ACTION_TEXT = {
   accept: { title: 'Accept', past: 'Accepted', tone: undefined },
   reject: { title: 'Reject', past: 'Rejected', tone: 'danger' },
   restore: { title: 'Restore', past: 'Restored', tone: 'warn' },
-  payout: { title: 'Send payout', past: 'Sent the payout for', tone: undefined },
 };
+
+
+const MAX_REASON = 500;
+
+// "Crypto USDT/BSC to 0xabc… · paid manually · tx 0x…" -> { coin: 'USDT/BSC', address: '0xabc…' }
+const cryptoTarget = (memo) => {
+  const [coin, ...rest] = memo.slice(7).split(' to ');
+  return { coin, address: rest.join(' to ').split(' · ')[0] };
+};
+
+function CopyButton({ text }) {
+  const [done, setDone] = useState(false);
+  if (!text || !navigator.clipboard) return null;
+  return (
+    <button type="button" className="btn btn--sm btn--ghost" style={{ flex: 'none' }}
+      onClick={() => navigator.clipboard.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1500); })}>
+      {done ? 'Copied' : 'Copy'}
+    </button>
+  );
+}
+
+const Row = ({ k, children }) => (
+  <div className="kv__row"><span className="kv__k">{k}</span><span className="kv__v" style={{ whiteSpace: 'normal' }}>{children}</span></div>
+);
 
 // Crypto withdrawals (on-chain payouts) carry "Crypto <COIN>/<NETWORK> to <address>" as their memo.
 const isCrypto = (t) => typeof t.memo === 'string' && t.memo.startsWith('Crypto ');
 
-// Money > Deposits / Withdrawals: review queue with accept / reject / restore.
+// Can be accepted: pending, or a withdrawal stuck in "processing" (balance already debited).
+const canAccept = (t) => t.status === 'pending' || (t.type === 'withdraw' && t.status === 'processing');
+
+// Money > Deposits / Withdrawals: review queue with details, accept / reject / restore.
+// Withdrawals are paid out manually: the admin sends the funds, then accepts
+// (optionally with the payment reference); a rejection needs a reason. The
+// member is emailed either way and their pages update live.
 export default function MoneyRequests({ type }) {
   const isDeposit = type === 'deposit';
-  // Withdrawals cannot be restored, so they never reach "restored". Crypto
-  // withdrawals are "processing" until the payout settles, or "failed" (refunded).
-  const statuses = isDeposit ? ['pending', 'finished', 'rejected', 'restored'] : ['pending', 'processing', 'finished', 'rejected', 'failed'];
+  // Withdrawals cannot be restored, so they never reach "restored".
+  // "processing" only appears when an older backend accepted a withdrawal with
+  // the former automatic payout; such a row can still be accepted (finished).
+  const statuses = isDeposit ? ['pending', 'finished', 'rejected', 'restored'] : ['pending', 'processing', 'finished', 'rejected'];
   const { token, readOnly } = useAuth();
   const { refresh: refreshStats } = useStats();
   const h = useHierarchy();
@@ -41,6 +71,9 @@ export default function MoneyRequests({ type }) {
   const [includeSub, setIncludeSub] = useState(true);
   const [search, setSearch] = useState('');
   const [confirm, setConfirm] = useState(null); // { tx, action }
+  const [reason, setReason] = useState('');
+  const [reference, setReference] = useState('');
+  const [details, setDetails] = useState(null); // { uid, data?, error? }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -75,22 +108,49 @@ export default function MoneyRequests({ type }) {
   const paged = usePaged(rows, `${tab}|${selectedId}|${from}|${to}|${q}|${includeSub}`);
   const pendingSum = base.filter((t) => t.status === 'pending').reduce((a, t) => a + Number(t.amount), 0);
 
+  const openConfirm = (tx, action) => {
+    setReason('');
+    setReference('');
+    setError('');
+    setConfirm({ tx, action });
+  };
+
+  // Load the full request (member, email, payout target) for the details dialog.
+  const openDetails = async (uid) => {
+    setDetails({ uid });
+    try {
+      const data = await apiRequest(`/transactions/${uid}`, { token });
+      setDetails((d) => (d?.uid === uid ? { uid, data } : d));
+    } catch (err) {
+      setDetails((d) => (d?.uid === uid ? { uid, error: err.message } : d));
+    }
+  };
+
+  const needsReason = confirm?.action === 'reject' && !isDeposit;
+  const takesReference = confirm?.action === 'accept' && !isDeposit;
+
   const run = async () => {
     const { tx, action } = confirm;
+    if (needsReason && !reason.trim()) return;
     setBusy(true);
     setError('');
     try {
-      const res = await apiRequest(`/transactions/${tx.uid}/${action}`, { method: 'POST', token });
-      if (res && res.success === false) setError(res.message || 'Action failed.');
-      else if (isCrypto(tx) && res?.message) setNotice(`${res.message} (${usd(tx.amount)} for @${tx.userId})`);
-      else setNotice(`${ACTION_TEXT[action].past} ${isDeposit ? 'deposit' : 'withdrawal'} of ${usd(tx.amount)} for @${tx.userId}.`);
+      const body = action === 'reject' ? { reason: reason.trim() }
+        : takesReference ? { reference: reference.trim() } : undefined;
+      const res = await apiRequest(`/transactions/${tx.uid}/${action}`, { method: 'POST', token, body });
+      if (res && res.success === false) {
+        setError(res.message || 'Action failed.');
+        return; // keep the dialog open so the admin can fix the input
+      }
+      setNotice(`${ACTION_TEXT[action].past} ${isDeposit ? 'deposit' : 'withdrawal'} of ${usd(tx.amount)} for @${tx.userId}.${res?.email ? ` ${res.email}` : ''}`);
+      setConfirm(null);
+      setDetails(null);
       await Promise.all([txs.refresh(), h.refresh()]);
       refreshStats();
     } catch (err) {
       setError(err.message);
     } finally {
       setBusy(false);
-      setConfirm(null);
     }
   };
 
@@ -104,7 +164,7 @@ export default function MoneyRequests({ type }) {
         subtitle={counts.pending ? `${counts.pending} pending · ${usd(pendingSum)} waiting for review` : 'No pending requests'}
         actions={<button className="btn btn--ghost" onClick={() => txs.refresh()}><RefreshIcon width={15} height={15} /> Refresh</button>}
       />
-      {(h.error || txs.error || error) && <Alert>{error || h.error || txs.error}</Alert>}
+      {(h.error || txs.error || (error && !confirm)) && <Alert>{(!confirm && error) || h.error || txs.error}</Alert>}
       {notice && <Alert tone="ok" action={<button className="linklike" onClick={() => setNotice('')}>Dismiss</button>}>{notice}</Alert>}
 
       <div className="split">
@@ -115,7 +175,7 @@ export default function MoneyRequests({ type }) {
         <section className="card">
           <div className="toolbar" style={{ paddingBottom: 12 }}>
             <div className="seg" role="tablist" aria-label="Status">
-              {['pending', 'all', ...statuses.filter((s) => s !== 'pending')].map((s) => (
+              {['pending', 'all', ...statuses.filter((s) => s !== 'pending' && (s !== 'processing' || counts.processing))].map((s) => (
                 <button key={s} role="tab" aria-selected={tab === s} className={`seg__btn ${tab === s ? 'is-active' : ''}`} onClick={() => setTab(s)}>
                   {s === 'all' ? 'All' : s[0].toUpperCase() + s.slice(1)}
                   <span className="faint" style={{ fontSize: 11.5 }}>{counts[s] ?? 0}</span>
@@ -153,7 +213,6 @@ export default function MoneyRequests({ type }) {
                 {paged.pageRows.map((t, i) => {
                   const u = h.userByLogin.get(t.userId);
                   const canRestore = isDeposit && t.status === 'finished';
-                  const canPayout = isCrypto(t) && t.status === 'processing';
                   return (
                     <tr key={t.uid}>
                       <td className="table__idx">{paged.start + i + 1}</td>
@@ -161,10 +220,17 @@ export default function MoneyRequests({ type }) {
                       <td className={`r amount ${isDeposit ? 'pos' : ''}`} style={isDeposit ? undefined : { color: 'var(--warn)' }}>{usd(t.amount)}</td>
                       <td className="r num muted">{usd(t.beforeAmount)}</td>
                       <td className="r num">{t.afterAmount == null ? <span className="faint">—</span> : usd(t.afterAmount)}</td>
-                      <td><StatusBadge status={t.status} /></td>
+                      <td>
+                        <StatusBadge status={t.status} />
+                        {t.status === 'rejected' && t.rejectReason && (
+                          <div className="member__id" style={{ maxWidth: 220, whiteSpace: 'normal', marginTop: 4 }} title={t.rejectReason}>
+                            {t.rejectReason.length > 80 ? `${t.rejectReason.slice(0, 80)}…` : t.rejectReason}
+                          </div>
+                        )}
+                      </td>
                       <td>
                         {isCrypto(t)
-                          ? <span className="member__txt" style={{ maxWidth: 260 }}><span className="member__name">{t.memo.slice(7).split(' to ')[0]}</span><span className="member__id" style={{ wordBreak: 'break-all' }}>{t.memo.slice(7).split(' to ').slice(1).join(' to ').split(' · ')[0]}</span></span>
+                          ? <span className="member__txt" style={{ maxWidth: 260 }}><span className="member__name">{cryptoTarget(t.memo).coin}</span><span className="member__id" style={{ wordBreak: 'break-all' }}>{cryptoTarget(t.memo).address}</span></span>
                           : u?.bankName
                           ? <span className="member__txt"><span className="member__name">{u.bankName}</span><span className="member__id">{[u.bankAccount, u.bankMaster].filter(Boolean).join(' · ')}</span></span>
                           : <span className="faint">—</span>}
@@ -176,27 +242,26 @@ export default function MoneyRequests({ type }) {
                       </td>
                       <td>
                         <div className="row-actions" style={{ justifyContent: 'flex-end' }}>
+                          <button className="btn btn--sm btn--ghost" onClick={() => openDetails(t.uid)} title="View request details">
+                            <EyeIcon width={13} height={13} /> Details
+                          </button>
+                          {canAccept(t) && (
+                            <button className="btn btn--sm btn--primary" onClick={() => openConfirm(t, 'accept')} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}>
+                              <CheckIcon width={13} height={13} /> Accept
+                            </button>
+                          )}
                           {t.status === 'pending' && (
                             <>
-                              <button className="btn btn--sm btn--primary" onClick={() => setConfirm({ tx: t, action: 'accept' })} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}>
-                                <CheckIcon width={13} height={13} /> Accept
-                              </button>
-                              <button className="btn btn--sm btn--danger-ghost" onClick={() => setConfirm({ tx: t, action: 'reject' })} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}>
+                              <button className="btn btn--sm btn--danger-ghost" onClick={() => openConfirm(t, 'reject')} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}>
                                 <CloseIcon width={13} height={13} /> Reject
                               </button>
                             </>
                           )}
                           {canRestore && (
-                            <button className="btn btn--sm btn--warn-soft" onClick={() => setConfirm({ tx: t, action: 'restore' })} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}>
+                            <button className="btn btn--sm btn--warn-soft" onClick={() => openConfirm(t, 'restore')} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}>
                               <RefreshIcon width={13} height={13} /> Restore
                             </button>
                           )}
-                          {canPayout && (
-                            <button className="btn btn--sm btn--ghost" onClick={() => setConfirm({ tx: t, action: 'payout' })} disabled={readOnly} title={readOnly ? DEMO_TITLE : 'Send the payout again if it was never sent'}>
-                              <RefreshIcon width={13} height={13} /> Send payout
-                            </button>
-                          )}
-                          {t.status !== 'pending' && !canRestore && !canPayout && <span className="faint">—</span>}
                         </div>
                       </td>
                     </tr>
@@ -213,16 +278,78 @@ export default function MoneyRequests({ type }) {
         </section>
       </div>
 
+      {details && !confirm && (() => {
+        const d = details.data;
+        const t = d?.transaction ?? (txs.data ?? []).find((x) => x.uid === details.uid);
+        const m = d?.member;
+        const c = d?.crypto;
+        const target = !c && t && isCrypto(t) ? cryptoTarget(t.memo) : null;
+        return (
+          <Modal
+            title={`${isDeposit ? 'Deposit' : 'Withdrawal'} request #${details.uid}`} icon={Icon} size="lg"
+            subtitle={t ? `${usd(t.amount)} · requested ${dateTime(t.createdAt)}` : undefined}
+            onClose={() => setDetails(null)}
+            footer={<>
+              <button type="button" className="btn btn--ghost" onClick={() => setDetails(null)}>Close</button>
+              {t?.status === 'pending' && (
+                <button type="button" className="btn btn--danger-ghost" onClick={() => openConfirm(t, 'reject')} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}>
+                  <CloseIcon width={14} height={14} /> Reject
+                </button>
+              )}
+              {t && canAccept(t) && (
+                <button type="button" className="btn btn--primary" onClick={() => openConfirm(t, 'accept')} disabled={readOnly} title={readOnly ? DEMO_TITLE : undefined}>
+                  <CheckIcon width={14} height={14} /> Accept
+                </button>
+              )}
+            </>}
+          >
+            {details.error && <Alert>{details.error}</Alert>}
+            {!d && !details.error && <p className="modal__text"><Spinner /> Loading details…</p>}
+            {t && (
+              <div className="kv" style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
+                <Row k="Status"><StatusBadge status={t.status} /></Row>
+                <Row k="Amount"><b>{usd(t.amount)}</b></Row>
+                <Row k="Member">{m ? `${m.name} (@${m.loginId})` : `@${t.userId}`}</Row>
+                {m && <Row k="Email">{m.email || <span className="faint">No email on file</span>}</Row>}
+                {m && <Row k="Current balance">{usd(m.balance)}</Row>}
+                {m && <Row k="Account status">{m.status}</Row>}
+                {m && !isDeposit && <Row k="Past withdrawals">{`${Number(m.withdrawCount)} · ${usd(m.withdrawAmount)}`}</Row>}
+                {m && <Row k="Past deposits">{`${Number(m.depositCount)} · ${usd(m.depositAmount)}`}</Row>}
+                {(c || target) && <Row k="Coin / network">{c ? `${c.coin} · ${c.network}` : target.coin}</Row>}
+                {(c || target) && (
+                  <Row k="Pay to address">
+                    <span style={{ wordBreak: 'break-all', fontFamily: 'monospace', fontSize: 12.5 }}>{c?.address ?? target.address}</span>
+                    <CopyButton text={c?.address ?? target.address} />
+                  </Row>
+                )}
+                {!c && !target && m && (
+                  <Row k={isDeposit ? 'Bank' : 'Pay to bank'}>
+                    {m.bankName ? [m.bankName, m.bankAccount, m.bankMaster].filter(Boolean).join(' · ') : <span className="faint">No bank details</span>}
+                    {m.bankAccount && <CopyButton text={m.bankAccount} />}
+                  </Row>
+                )}
+                <Row k="Balance before / after">{usd(t.beforeAmount)} → {t.afterAmount == null ? '—' : usd(t.afterAmount)}</Row>
+                <Row k="Requested">{dateTime(t.createdAt)}</Row>
+                {t.updatedAt && <Row k="Processed">{dateTime(t.updatedAt)}{t.managerId ? ` by ${t.managerId}` : ''}</Row>}
+                {t.rejectReason && <Row k="Reject reason"><span style={{ whiteSpace: 'pre-wrap' }}>{t.rejectReason}</span></Row>}
+                {t.txLinks?.length ? <Row k="Payout transaction"><TxLinks links={t.txLinks} /></Row> : null}
+                {t.memo && <Row k="Memo"><span style={{ wordBreak: 'break-all' }}>{t.memo}</span></Row>}
+              </div>
+            )}
+          </Modal>
+        );
+      })()}
+
       {confirm && (() => {
         const { tx, action } = confirm;
         const a = ACTION_TEXT[action];
         const u = h.userByLogin.get(tx.userId);
-        const effect = action === 'payout'
-          ? 'Queues this payout on the crypto gateway. Nothing is sent twice: if the payout already went out, this only reports its status.'
-          : action === 'accept' && isCrypto(tx)
-          ? 'The amount will be deducted from the member’s balance and sent as an on-chain crypto payout. If the payout fails, the amount is returned automatically.'
-          : action === 'accept'
-          ? (isDeposit ? 'The amount will be added to the member’s balance.' : 'The amount will be deducted from the member’s balance.')
+        const effect = action === 'accept' && tx.status === 'processing'
+          ? 'This withdrawal was accepted earlier under the old automatic payout and its amount is already deducted. Only accept after you have sent the funds yourself: it is marked finished (no further balance change) and the member is emailed.'
+          : action === 'accept' && !isDeposit
+          ? 'Only accept after you have sent the funds yourself. The amount will be deducted from the member’s balance, the request marked finished, and the member emailed.'
+          : action === 'accept' ? 'The amount will be added to the member’s balance.'
+          : action === 'reject' && !isDeposit ? 'The request will be closed without changing the balance. The member sees the reason and is emailed.'
           : action === 'reject' ? 'The request will be closed without changing the balance.'
           : 'The deposit will be reversed and the amount taken back from the member’s balance.';
         return (
@@ -231,15 +358,30 @@ export default function MoneyRequests({ type }) {
             onClose={() => !busy && setConfirm(null)} onSubmit={run}
             footer={<>
               <button type="button" className="btn btn--ghost" onClick={() => setConfirm(null)} disabled={busy}>Cancel</button>
-              <button type="submit" className={`btn ${action === 'reject' ? 'btn--danger' : action === 'restore' ? 'btn--warn-soft' : 'btn--primary'}`} disabled={busy}>
-                {busy && <Spinner />}{a.title}
+              <button type="submit" className={`btn ${action === 'reject' ? 'btn--danger' : action === 'restore' ? 'btn--warn-soft' : 'btn--primary'}`}
+                disabled={busy || (needsReason && !reason.trim())}>
+                {busy && <Spinner />}{action === 'accept' && !isDeposit ? 'Funds sent — accept' : a.title}
               </button>
             </>}
           >
+            {error && <Alert>{error}</Alert>}
             <div className="callout"><span>Member</span><b style={{ fontSize: 14 }}>{u?.name ?? tx.userId} (@{tx.userId})</b></div>
             <div className="callout"><span>Amount</span><b>{usd(tx.amount)}</b></div>
             {u && <div className="callout"><span>Current balance</span><b>{usd(u.balance)}</b></div>}
-            {isCrypto(tx) && <div className="callout"><span>Pay to</span><b style={{ wordBreak: 'break-all' }}>{tx.memo.slice(7)}</b></div>}
+            {isCrypto(tx) && <div className="callout"><span>Pay to</span><b style={{ wordBreak: 'break-all' }}>{cryptoTarget(tx.memo).coin} · {cryptoTarget(tx.memo).address}</b></div>}
+            {takesReference && (
+              <Field label="Payment reference (optional)" hint={isCrypto(tx) ? 'The transaction hash of the payout you sent; shown to the member with an explorer link.' : 'E.g. the bank transfer ID; included in the member’s email.'}>
+                <input className="input" value={reference} maxLength={128} onChange={(e) => setReference(e.target.value)}
+                  placeholder={isCrypto(tx) ? '0x…' : 'Transfer ID'} autoFocus spellCheck={false} />
+              </Field>
+            )}
+            {action === 'reject' && (
+              <Field label={isDeposit ? 'Reason (optional)' : 'Reason for the member'} hint={`${reason.trim().length}/${MAX_REASON}`}>
+                <textarea className="input" style={{ height: 'auto', minHeight: 90, padding: '10px 12px', resize: 'vertical' }}
+                  value={reason} maxLength={MAX_REASON} onChange={(e) => setReason(e.target.value)} autoFocus
+                  placeholder="e.g. The wallet address does not match the selected network." required={needsReason} />
+              </Field>
+            )}
             <p className="modal__text">{effect}</p>
           </Modal>
         );

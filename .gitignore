@@ -2,3 +2,5 @@ admin-backend/.env
 node_modules/
 .env
 .bak*
+.env.bak*
+admin-backend/.env.bak*

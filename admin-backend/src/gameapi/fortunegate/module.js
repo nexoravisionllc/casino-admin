@@ -6,7 +6,8 @@ import { fortuneGateClient } from './client.js';
  * FortuneGate game company integration: syncs its providers and games into the
  * Providers / Games tables. Field mapping (response -> DB):
  *   provider_id -> provider_id, provider_name -> name, status -> status,
- *   company -> "FortuneGate", image_url -> null, created_at -> insert time.
+ *   company -> "FortuneGate", image_url -> the remembered image (ProviderImages)
+ *   or null, created_at -> insert time.
  * Each game company module exposes { company, syncProviders, syncGames }.
  */
 
@@ -45,9 +46,11 @@ async function syncProviders() {
         }
         updated++;
       } else {
+        // A provider pruned earlier comes back with the image it had.
         await tx.query(
           `INSERT INTO Providers (provider_id, name, company, status, image_url, created_at)
-           VALUES (:providerId, :name, :company, :status, NULL, :now)`,
+           VALUES (:providerId, :name, :company, :status,
+                   (SELECT image_url FROM ProviderImages WHERE company = :company AND provider_id = :providerId), :now)`,
           { providerId, name, company: COMPANY, status, now });
         existing.set(providerId, { name, status });
         inserted++;
@@ -120,12 +123,19 @@ async function syncGames() {
  * Runs after every game sync because syncProviders re-adds them.
  */
 async function pruneEmptyProviders() {
-  const { affectedRows } = await db.query(
-    `DELETE FROM Providers
-     WHERE company = :company AND provider_id NOT IN (:keep)
-       AND NOT EXISTS (SELECT 1 FROM Games g WHERE g.company = Providers.company AND g.providerid = Providers.provider_id)`,
-    { company: COMPANY, keep: LIVE_PROVIDER_IDS });
-  if (affectedRows) log.info(`FortuneGate: removed ${affectedRows} providers with no games.`);
+  const EMPTY = `company = :company AND provider_id NOT IN (:keep)
+       AND NOT EXISTS (SELECT 1 FROM Games g WHERE g.company = Providers.company AND g.providerid = Providers.provider_id)`;
+  const params = { company: COMPANY, keep: LIVE_PROVIDER_IDS };
+  const affectedRows = await db.transaction(async ({ query }) => {
+    // Keep their images for when they are added back (see syncProviders).
+    await query(
+      `INSERT INTO ProviderImages (company, provider_id, image_url, updated_at)
+       SELECT company, provider_id, image_url, NOW(6) FROM Providers
+       WHERE ${EMPTY} AND image_url IS NOT NULL AND image_url <> ''
+       ON DUPLICATE KEY UPDATE image_url = VALUES(image_url), updated_at = VALUES(updated_at)`, params);
+    return (await query(`DELETE FROM Providers WHERE ${EMPTY}`, params)).affectedRows;
+  });
+  if (affectedRows) log.info(`FortuneGate: removed ${affectedRows} providers with no games (their images are kept).`);
 }
 
 export const fortuneGateModule = { company: COMPANY, syncProviders, syncGames };

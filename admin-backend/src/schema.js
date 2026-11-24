@@ -74,6 +74,7 @@ export const TABLES = {
       userid       VARCHAR(64)   NOT NULL,
       managerid    VARCHAR(64)   NULL,
       memo         VARCHAR(512)  NULL,
+      reject_reason VARCHAR(512) NULL,
       target_type  VARCHAR(16)   NULL,
       created_at   DATETIME(6)   NOT NULL,
       updated_at   DATETIME(6)   NULL,
@@ -149,6 +150,28 @@ export const TABLES = {
       Show_Enable TINYINT(1)  NOT NULL DEFAULT 1
     ) ${TABLE_OPTIONS}`,
 
+  // Site-wide options set from the admin Settings page, as name -> value
+  // (e.g. autoApproveSignups = 'true'). Shared by both backends.
+  AppSettings: `
+    CREATE TABLE IF NOT EXISTS AppSettings (
+      name       VARCHAR(64)  NOT NULL PRIMARY KEY,
+      value      VARCHAR(512) NOT NULL,
+      updated_at DATETIME(6)  NOT NULL,
+      updated_by VARCHAR(64)  NULL
+    ) ${TABLE_OPTIONS}`,
+
+  // The last image set for each provider. The FortuneGate sync deletes
+  // providers that have no games and adds them back later; the re-added row
+  // takes its image from here (see gameapi/fortunegate/module.js).
+  ProviderImages: `
+    CREATE TABLE IF NOT EXISTS ProviderImages (
+      company     VARCHAR(64)  NOT NULL,
+      provider_id INT          NOT NULL,
+      image_url   VARCHAR(512) NOT NULL,
+      updated_at  DATETIME(6)  NOT NULL,
+      PRIMARY KEY (company, provider_id)
+    ) ${TABLE_OPTIONS}`,
+
   // Crypto deposits and payouts, written by the user backend (same DDL as
   // user-backend/src/schema.js). Read here to tell crypto withdrawals apart.
   CryptoPayments: `
@@ -207,6 +230,16 @@ function serverOnly() {
   };
 }
 
+// The user backend adds the same columns to the shared database; when both
+// start at once the other may add one between the check and the ALTER.
+async function addColumn(sql) {
+  try {
+    await db.query(sql);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+}
+
 export async function ensureSchema() {
   await ensureDatabase();
 
@@ -217,8 +250,14 @@ export async function ensureSchema() {
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Users'`)).map((c) => c.name.toLowerCase()));
   for (const column of USER_EXTRA_COLUMNS) {
     if (!present.has(column.toLowerCase()))
-      await db.query(`ALTER TABLE Users ADD COLUMN ${column} DECIMAL(18,2) NOT NULL DEFAULT 0`);
+      await addColumn(`ALTER TABLE Users ADD COLUMN ${column} DECIMAL(18,2) NOT NULL DEFAULT 0`);
   }
+
+  // Reason shown to the member when an admin rejects a deposit/withdraw request.
+  const [reason] = await db.query(
+    `SELECT 1 AS present FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Transactions' AND COLUMN_NAME = 'reject_reason'`);
+  if (!reason) await addColumn('ALTER TABLE Transactions ADD COLUMN reject_reason VARCHAR(512) NULL AFTER memo');
 
   // txid held one hash (VARCHAR(128)); a deposit made of several transfers lists
   // them all, comma-separated, so widen it on databases created before that.
@@ -226,6 +265,11 @@ export async function ensureSchema() {
     `SELECT DATA_TYPE AS type FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'CryptoPayments' AND COLUMN_NAME = 'txid'`);
   if (txid && txid.type.toLowerCase() === 'varchar') await db.query('ALTER TABLE CryptoPayments MODIFY txid TEXT NULL');
+
+  // Remember the images providers already have (keeps any newer remembered one).
+  await db.query(
+    `INSERT IGNORE INTO ProviderImages (company, provider_id, image_url, updated_at)
+     SELECT company, provider_id, image_url, NOW(6) FROM Providers WHERE image_url IS NOT NULL AND image_url <> ''`);
 
   // Seed the game-visibility rows (default: all shown) if none exist.
   const [{ n }] = await db.query('SELECT COUNT(*) AS n FROM GameSetting');

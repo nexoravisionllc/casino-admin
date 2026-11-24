@@ -6,6 +6,7 @@ import { bodyOf, isBlank, longParam } from '../lib/http.js';
 import { hashPassword } from '../lib/password.js';
 import { USER_COLUMNS, toUserRow } from '../lib/rows.js';
 import { walletNotifier } from '../realtime/wallet.js';
+import { notifyPlayer } from '../lib/playerNotify.js';
 
 export const router = express.Router();
 router.use(requireAuth);
@@ -132,5 +133,6 @@ router.post('/:id/adjust', async (req, res) => {
   });
 
   if (result.user) walletNotifier.walletChanged(result.user.LoginId, Number(result.user.Balance), Number(result.user.Point));
+  if (result.user) notifyPlayer(result.user.LoginId, 'balance-adjusted', { field, mode, amount });
   res.status(result.status).json(result.body);
 });

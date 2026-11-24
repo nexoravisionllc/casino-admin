@@ -727,6 +727,7 @@ p { margin: 0; }
 /* ---------- Stat tiles ---------- */
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .stats--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.stats--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .stats--5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .stat {
   position: relative; overflow: hidden;
@@ -1016,7 +1017,7 @@ p { margin: 0; }
   .login__body { padding: 32px 26px; }
 }
 @media (max-width: 640px) {
-  .stats, .stats--3, .stats--5 { grid-template-columns: minmax(0, 1fr); }
+  .stats, .stats--2, .stats--3, .stats--5 { grid-template-columns: minmax(0, 1fr); }
   .rates { grid-template-columns: minmax(0, 1fr); }
   .form-grid { grid-template-columns: minmax(0, 1fr); }
   .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -14,6 +14,7 @@ import { router as games } from './routes/games.js';
 import { router as pointHistory } from './routes/pointHistory.js';
 import { router as gameSetting } from './routes/gameSetting.js';
 import { router as providers } from './routes/providers.js';
+import { router as settings } from './routes/settings.js';
 import { router as transactions } from './routes/transactions.js';
 import { router as users } from './routes/users.js';
 import { router as wallet } from './routes/wallet.js';
@@ -44,6 +45,7 @@ export function createApp() {
   app.use('/api/gamesetting', gameSetting);
   app.use('/api/point-history', pointHistory);
   app.use('/api/providers', providers);
+  app.use('/api/settings', settings);
   app.use('/api/transactions', transactions);
   app.use('/api/users', users);
   app.use('/api/wallet', wallet);

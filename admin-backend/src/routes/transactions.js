@@ -1,10 +1,12 @@
 import express from 'express';
-import { config } from '../config.js';
 import { db } from '../db.js';
 import { currentManagerLogin, requireAuth } from '../lib/auth.js';
-import { money } from '../lib/format.js';
-import { longParam } from '../lib/http.js';
+import { dbDate, money, num } from '../lib/format.js';
+import { bodyOf, longParam } from '../lib/http.js';
+import { explorerTxUrl } from '../lib/explorer.js';
 import { log } from '../lib/log.js';
+import { sendWithdrawalDecision } from '../lib/mail.js';
+import { notifyPlayer } from '../lib/playerNotify.js';
 import { TRANSACTION_COLUMNS, toTransactionRow } from '../lib/rows.js';
 import { walletNotifier } from '../realtime/wallet.js';
 
@@ -22,30 +24,64 @@ async function isCryptoWithdraw(query, tx) {
   return Boolean(row);
 }
 
+const MAX_REASON = 500;
+const MAX_REFERENCE = 128;
+// Printable text only (no control characters / newlines) for the payout reference.
+const PRINTABLE = /^[^\p{C}]+$/u;
+
 /**
- * Ask the user backend (which runs the on-chain gateway) to queue the payout
- * for an accepted crypto withdrawal. Safe to repeat: the user backend sends
- * each payout at most once. A payout that cannot be sent is refunded there.
+ * Optional "how it was paid" reference an admin enters on accept, e.g. the
+ * on-chain transaction hash or a bank transfer id. Returns { value } or { error }.
  */
-async function sendCryptoPayout(uid) {
-  const stuck = 'It stays "processing"; use "Send payout" to try again.';
+function payoutReference(req) {
+  const ref = (bodyOf(req).str('reference') ?? '').trim();
+  if (!ref) return { value: null };
+  if (ref.length > MAX_REFERENCE || !PRINTABLE.test(ref)) return { error: `The payment reference must be at most ${MAX_REFERENCE} characters on one line.` };
+  return { value: ref };
+}
+
+/** The crypto payout row (coin / network / address) of a withdraw request, or null. */
+async function cryptoPaymentOf(query, uid) {
+  const [row] = await query(
+    `SELECT uid, order_id, status, payer_currency, network, address, txid FROM CryptoPayments
+     WHERE transaction_uid = :uid AND direction = 'withdraw' LIMIT 1`, { uid });
+  return row ?? null;
+}
+
+/** Where the withdrawal is paid, for the member's email. */
+const payoutTarget = (crypto, user) => (crypto
+  ? { kind: 'crypto', coin: crypto.payer_currency, network: crypto.network, address: crypto.address }
+  : user.BankName || user.BankAccount
+    ? { kind: 'bank', bankName: user.BankName, bankAccount: user.BankAccount, bankMaster: user.BankMaster }
+    : null);
+
+/**
+ * After a withdraw request was accepted or rejected: push the new status to
+ * the member's open pages and email them. Never throws; returns a note for the
+ * admin about the email.
+ */
+async function notifyWithdrawalDecision(tx, { accepted, reason, reference }) {
   try {
-    const res = await fetch(`${config.userBackend.baseUrl}/api/payments/internal/crypto/payout`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Notify-Secret': config.notifySecret },
-      body: JSON.stringify({ transactionUid: String(uid) }),
-      signal: AbortSignal.timeout(30000),
+    walletNotifier.transactionChanged(tx.userid, { uid: tx.uid, type: tx.type, status: accepted ? 'finished' : 'rejected', rejectReason: reason ?? null });
+    const isCryptoPayout = Boolean(await cryptoPaymentOf(db.query, tx.uid));
+    notifyPlayer(tx.userid, accepted ? 'withdraw-accepted' : 'withdraw-rejected',
+      { uid: tx.uid, amount: tx.amount, reason: reason ?? null, toWallet: isCryptoPayout });
+    const [user] = await db.query(
+      'SELECT Name, LoginId, Email, BankName, BankAccount, BankMaster FROM Users WHERE LoginId = :loginId LIMIT 1', { loginId: tx.userid });
+    if (!user) return 'No email sent: the member no longer exists.';
+    const crypto = await cryptoPaymentOf(db.query, tx.uid);
+    const [row] = await db.query('SELECT created_at, updated_at FROM Transactions WHERE uid = :uid', { uid: tx.uid });
+    const mail = await sendWithdrawalDecision({
+      user,
+      tx: { uid: tx.uid, amount: tx.amount, requestedAt: row?.created_at ?? null, processedAt: row?.updated_at ?? new Date() },
+      accepted, reason, payoutRef: reference,
+      payoutUrl: crypto && reference ? explorerTxUrl(crypto.network, reference) : null,
+      target: payoutTarget(crypto, user),
     });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data) {
-      // 401 here means NOTIFY_SECRET differs between the two backends.
-      log.warn(`Crypto payout request for transaction ${uid} was rejected: HTTP ${res.status}.`);
-      return { success: false, message: `Withdraw accepted, but the payout could not be requested (HTTP ${res.status}). ${stuck}` };
-    }
-    return { success: Boolean(data.success), message: data.message };
+    return mail.sent ? `Email sent to ${user.Email}.` : `No email sent: ${mail.reason}.`;
   } catch (err) {
-    log.warn(`Crypto payout request for transaction ${uid} failed.`, err);
-    return { success: false, message: `Withdraw accepted, but the user backend could not be reached to send the payout. ${stuck}` };
+    log.warn(`Could not notify ${tx.userid} about withdrawal ${tx.uid}.`, err);
+    return 'No email sent: an unexpected error occurred.';
   }
 }
 
@@ -53,6 +89,32 @@ async function sendCryptoPayout(uid) {
 router.get('/', async (req, res) => {
   const rows = await db.query(`SELECT ${TRANSACTION_COLUMNS} FROM Transactions ORDER BY uid DESC`);
   res.json(rows.map(toTransactionRow));
+});
+
+/** One request with its member and payout details, for the review dialog. */
+router.get('/:id', async (req, res) => {
+  const [row] = await db.query(`SELECT ${TRANSACTION_COLUMNS} FROM Transactions WHERE uid = :id`, { id: req.params.id });
+  if (!row) return res.status(404).json({ success: false, message: 'Transaction not found.' });
+  const [user] = await db.query(
+    `SELECT Name, LoginId, Email, Status, Balance, Point, BankName, BankAccount, BankMaster,
+            DepositAmount, DepositCount, WithdrawAmount, WithdrawCount, CreatedAt
+     FROM Users WHERE LoginId = :loginId LIMIT 1`, { loginId: row.userid });
+  const crypto = row.type === 'withdraw' ? await cryptoPaymentOf(db.query, row.uid) : null;
+  res.json({
+    transaction: toTransactionRow(row),
+    member: user ? {
+      name: user.Name, loginId: user.LoginId, email: user.Email ?? null, status: user.Status,
+      balance: num(user.Balance), point: num(user.Point),
+      bankName: user.BankName ?? null, bankAccount: user.BankAccount ?? null, bankMaster: user.BankMaster ?? null,
+      depositAmount: num(user.DepositAmount), depositCount: num(user.DepositCount),
+      withdrawAmount: num(user.WithdrawAmount), withdrawCount: num(user.WithdrawCount),
+      createdAt: dbDate(user.CreatedAt),
+    } : null,
+    crypto: crypto ? {
+      orderId: crypto.order_id, status: crypto.status, coin: crypto.payer_currency, network: crypto.network,
+      address: crypto.address, txid: crypto.txid ?? null,
+    } : null,
+  });
 });
 
 /**
@@ -63,7 +125,7 @@ router.get('/', async (req, res) => {
 async function handle(req, res, act) {
   const outcome = await db.transaction(async ({ query }) => {
     const [tx] = await query(
-      'SELECT uid, type, amount, beforeamount, status, userid, managerid FROM Transactions WHERE uid = :id FOR UPDATE',
+      'SELECT uid, type, amount, beforeamount, status, userid, managerid, memo FROM Transactions WHERE uid = :id FOR UPDATE',
       { id: req.params.id });
     if (!tx) return { error: 'Transaction not found.' };
 
@@ -82,6 +144,14 @@ async function handle(req, res, act) {
       now: new Date(),
       id: tx.uid,
     };
+    if (result.memo !== undefined) {
+      sets.push('memo = :memo');
+      params.memo = result.memo;
+    }
+    if (result.rejectReason !== undefined) {
+      sets.push('reject_reason = :rejectReason');
+      params.rejectReason = result.rejectReason;
+    }
     // Only balance-changing actions rewrite the before/after amounts.
     if (result.after !== undefined) {
       sets.push('beforeamount = :before', 'afteramount = :after');
@@ -96,10 +166,9 @@ async function handle(req, res, act) {
   if (outcome.user) walletNotifier.walletChanged(outcome.user.LoginId, outcome.user.Balance, outcome.user.Point);
   else walletNotifier.adminsChanged();
 
-  // Work that must follow the commit, such as sending a crypto payout.
-  const reply = outcome.afterCommit ? await outcome.afterCommit() : { success: true, message: outcome.message };
-  if (outcome.afterCommit) walletNotifier.adminsChanged();
-  res.json(reply);
+  // Work that must follow the commit, such as emailing the member.
+  const note = outcome.afterCommit ? await outcome.afterCommit() : null;
+  res.json({ success: true, message: note ? `${outcome.message} ${note}` : outcome.message, status: outcome.status, email: note });
 }
 
 const saveUser = (query, user) => query(
@@ -120,67 +189,106 @@ const numericUser = (u) => ({
 
 /**
  * Accept a pending deposit or withdraw: a deposit credits the user's balance,
- * a withdraw debits it. A crypto withdraw becomes "processing" and its payout
- * is sent on-chain by the user backend, which later finishes it, or refunds
- * it and marks it "failed". Fills the record's null fields (afteramount /
- * updated_at). Returns 200 with a success flag.
+ * a withdraw debits it. Withdrawals are paid out manually by the admin (bank
+ * transfer or crypto sent from their own wallet), so accepting one means "the
+ * funds have been sent": it is finished at once, nothing is sent automatically.
+ * Body (optional): { reference } — the payout tx hash / transfer id, kept on the
+ * record and included in the member's email. Returns 200 with a success flag.
  */
-router.post('/:id/accept', (req, res) => handle(req, res, async ({ query, tx, loadUser }) => {
-  if (!isDepositOrWithdraw(tx)) return { error: 'Only deposit or withdraw requests can be accepted here.' };
-  if (tx.status !== 'pending') return { error: 'Only pending requests can be accepted.' };
+router.post('/:id/accept', (req, res) => {
+  const reference = payoutReference(req);
+  if (reference.error) return res.json({ success: false, message: reference.error });
+  return handle(req, res, async ({ query, tx, loadUser }) => {
+    if (!isDepositOrWithdraw(tx)) return { error: 'Only deposit or withdraw requests can be accepted here.' };
 
-  const found = await loadUser();
-  if (!found) return { error: 'User not found.' };
-  const user = numericUser(found);
+    // A withdrawal left "processing" by the former automatic payout (e.g.
+    // accepted by a backend still running old code): its balance was already
+    // debited, so accepting only records the manual payout. Refused once the
+    // old worker sent it on-chain, since that transfer settles by itself.
+    if (tx.type === 'withdraw' && tx.status === 'processing') {
+      const [payment] = await query(
+        "SELECT uid, status FROM CryptoPayments WHERE transaction_uid = :uid AND direction = 'withdraw' FOR UPDATE", { uid: tx.uid });
+      if (payment && !['requested', 'queued'].includes(payment.status))
+        return { error: `This payout is already "${payment.status}" on-chain; it settles automatically.` };
+      if (payment) {
+        await query("UPDATE CryptoPayments SET status = 'paid', txid = :txid, updated_at = :now WHERE uid = :uid",
+          { txid: reference.value, now: new Date(), uid: payment.uid });
+      }
+      const memo = [tx.memo, 'paid manually', reference.value && `tx ${reference.value}`].filter(Boolean).join(' · ').slice(0, 512);
+      return {
+        status: 'finished', memo, message: 'Withdraw accepted.',
+        afterCommit: () => notifyWithdrawalDecision(tx, { accepted: true, reference: reference.value }),
+      };
+    }
 
-  let before = tx.beforeamount, after;
-  if (tx.type === 'deposit') {
-    user.Balance = money(user.Balance + tx.amount);
-    user.DepositAmount = money(user.DepositAmount + tx.amount);
-    user.DepositCount += 1;
-    after = money(tx.beforeamount + tx.amount);
-  } else {
-    if (user.Balance < tx.amount) return { error: 'User has insufficient balance for this withdrawal.' };
-    // Re-anchor before/after to the balance at accept time.
-    before = user.Balance;
-    user.Balance = money(user.Balance - tx.amount);
-    user.WithdrawAmount = money(user.WithdrawAmount + tx.amount);
-    user.WithdrawCount += 1;
-    after = user.Balance;
-  }
-  await saveUser(query, user);
+    if (tx.status !== 'pending') return { error: 'Only pending requests can be accepted.' };
 
-  if (await isCryptoWithdraw(query, tx)) {
-    return { status: 'processing', before, after, user, afterCommit: () => sendCryptoPayout(tx.uid) };
-  }
+    const found = await loadUser();
+    if (!found) return { error: 'User not found.' };
+    const user = numericUser(found);
 
-  return {
-    status: 'finished', before, after, user,
-    message: tx.type === 'withdraw' ? 'Withdraw accepted.' : 'Deposit accepted.',
-  };
-}));
+    let before = tx.beforeamount, after;
+    if (tx.type === 'deposit') {
+      user.Balance = money(user.Balance + tx.amount);
+      user.DepositAmount = money(user.DepositAmount + tx.amount);
+      user.DepositCount += 1;
+      after = money(tx.beforeamount + tx.amount);
+    } else {
+      if (user.Balance < tx.amount) return { error: 'User has insufficient balance for this withdrawal.' };
+      // Re-anchor before/after to the balance at accept time.
+      before = user.Balance;
+      user.Balance = money(user.Balance - tx.amount);
+      user.WithdrawAmount = money(user.WithdrawAmount + tx.amount);
+      user.WithdrawCount += 1;
+      after = user.Balance;
+    }
+    await saveUser(query, user);
 
-/** Reject a pending deposit (no balance change). */
-router.post('/:id/reject', (req, res) => handle(req, res, async ({ query, tx }) => {
-  if (tx.status !== 'pending') return { error: 'Only pending requests can be rejected.' };
-  await query(
-    "UPDATE CryptoPayments SET status = 'rejected', updated_at = :now WHERE transaction_uid = :uid AND direction = 'withdraw'",
-    { now: new Date(), uid: tx.uid });
-  return { status: 'rejected', message: 'Request rejected.' };
-}));
+    if (tx.type === 'deposit') {
+      return {
+        status: 'finished', before, after, user, message: 'Deposit accepted.',
+        afterCommit: () => { notifyPlayer(tx.userid, 'deposit-accepted', { uid: tx.uid, amount: tx.amount }); return null; },
+      };
+    }
+
+    // Crypto withdraw: record the manual payout so the on-chain worker never
+    // picks it up, and keep the hash (when given) for explorer links.
+    if (await isCryptoWithdraw(query, tx)) {
+      await query(
+        `UPDATE CryptoPayments SET status = 'paid', txid = :txid, updated_at = :now
+         WHERE transaction_uid = :uid AND direction = 'withdraw'`,
+        { txid: reference.value, now: new Date(), uid: tx.uid });
+    }
+    const memo = [tx.memo, 'paid manually', reference.value && `tx ${reference.value}`].filter(Boolean).join(' · ').slice(0, 512);
+    return {
+      status: 'finished', before, after, user, memo,
+      message: 'Withdraw accepted.',
+      afterCommit: () => notifyWithdrawalDecision(tx, { accepted: true, reference: reference.value }),
+    };
+  });
+});
 
 /**
- * Retry sending the payout of an accepted crypto withdraw whose payout was
- * never requested (e.g. the user backend was down at accept time).
+ * Reject a pending deposit or withdraw (no balance change). Body: { reason }.
+ * The reason is required for withdrawals; it is stored on the request, shown
+ * to the member and emailed to them.
  */
-router.post('/:id/payout', async (req, res) => {
-  const [tx] = await db.query('SELECT uid, type, status FROM Transactions WHERE uid = :id', { id: req.params.id });
-  if (!tx) return res.json({ success: false, message: 'Transaction not found.' });
-  if (tx.status !== 'processing' || !(await isCryptoWithdraw(db.query, tx)))
-    return res.json({ success: false, message: 'Only accepted crypto withdrawals can be paid out.' });
-  const reply = await sendCryptoPayout(tx.uid);
-  walletNotifier.adminsChanged();
-  res.json(reply);
+router.post('/:id/reject', (req, res) => {
+  const reason = (bodyOf(req).str('reason') ?? '').trim();
+  if (reason.length > MAX_REASON) return res.json({ success: false, message: `The reason must be at most ${MAX_REASON} characters.` });
+  return handle(req, res, async ({ query, tx }) => {
+    if (tx.status !== 'pending') return { error: 'Only pending requests can be rejected.' };
+    if (tx.type === 'withdraw' && !reason) return { error: 'Enter a reason for rejecting this withdrawal; it is sent to the member.' };
+    await query(
+      "UPDATE CryptoPayments SET status = 'rejected', updated_at = :now WHERE transaction_uid = :uid AND direction = 'withdraw'",
+      { now: new Date(), uid: tx.uid });
+    return {
+      status: 'rejected', rejectReason: reason || null, message: 'Request rejected.',
+      afterCommit: tx.type === 'withdraw'
+        ? () => notifyWithdrawalDecision(tx, { accepted: false, reason })
+        : () => { notifyPlayer(tx.userid, 'deposit-rejected', { uid: tx.uid, amount: tx.amount, reason: reason || null }); return null; },
+    };
+  });
 });
 
 /**
@@ -214,5 +322,8 @@ router.post('/:id/restore', (req, res) => handle(req, res, async ({ query, tx, l
   return {
     status: 'restored', before, after: user.Balance, user,
     message: tx.type === 'withdraw' ? 'Withdraw restored.' : 'Deposit restored.',
+    afterCommit: tx.type === 'deposit'
+      ? () => { notifyPlayer(tx.userid, 'deposit-reversed', { uid: tx.uid, amount: tx.amount }); return null; }
+      : undefined,
   };
 }));

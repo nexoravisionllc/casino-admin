@@ -22,6 +22,15 @@ export const walletNotifier = {
     walletHub.sendToGroup('admins', 'usersChanged');
   },
 
+  /**
+   * One of a user's deposit/withdraw requests changed status (accepted or
+   * rejected): the user's pages re-read their history, admins refresh.
+   */
+  transactionChanged(loginId, payload) {
+    walletHub.sendToGroup(`user:${loginId}`, 'transactionUpdated', payload);
+    walletHub.sendToGroup('admins', 'usersChanged');
+  },
+
   /** Something admins should re-read (e.g. a rejected request), no wallet change. */
   adminsChanged() {
     walletHub.sendToGroup('admins', 'usersChanged');
